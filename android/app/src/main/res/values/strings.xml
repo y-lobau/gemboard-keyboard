@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">GemboardKeyboard</string>
+    <string name="gemboard_ime_name">Gemboard</string>
+    <string name="gemboard_hold_to_talk">Hold the orange button and speak.</string>
+    <string name="gemboard_listening">Listening… release to transcribe.</string>
+    <string name="gemboard_transcribing">Transcribing with Gemini…</string>
+    <string name="gemboard_inserted">Transcript inserted.</string>
+    <string name="gemboard_missing_key">Save a Gemini API key in the Gemboard app first.</string>
+    <string name="gemboard_missing_permission">Grant microphone permission in the Gemboard app first.</string>
+    <string name="gemboard_no_speech">No speech was detected.</string>
+    <string name="gemboard_generic_error">Gemboard hit an unexpected error.</string>
 </resources>
