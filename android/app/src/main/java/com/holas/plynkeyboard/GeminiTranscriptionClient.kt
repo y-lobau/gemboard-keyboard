@@ -1,0 +1,146 @@
+package com.holas.plynkeyboard
+
+import android.content.Context
+import android.util.Base64
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.File
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+
+class GeminiTranscriptionClient {
+  data class TranscriptSnapshot(
+    val revision: Int,
+    val text: String,
+    val isFinal: Boolean,
+  )
+
+  private val userInstruction =
+    "Transcribe this audio as Belarusian dictation. Return only Belarusian transcript text."
+
+  fun transcribeStream(
+    context: Context,
+    apiKey: String,
+    audioFile: File,
+    onSnapshot: (TranscriptSnapshot) -> Unit,
+  ): String {
+    val model = GeminiRuntimeConfig.model(context)
+    val systemInstruction = GeminiRuntimeConfig.systemPrompt(context)
+    val endpoint = URL(
+      "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$apiKey",
+    )
+    val connection = (endpoint.openConnection() as HttpURLConnection).apply {
+      requestMethod = "POST"
+      doOutput = true
+      setRequestProperty("Content-Type", "application/json")
+      setRequestProperty("Accept", "text/event-stream")
+      connectTimeout = 30_000
+      readTimeout = 60_000
+    }
+
+    val parts = JSONArray()
+      .put(JSONObject().put("text", userInstruction))
+      .put(
+        JSONObject().put(
+          "inlineData",
+          JSONObject()
+            .put("mimeType", "audio/wav")
+            .put("data", Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP)),
+        ),
+      )
+
+    val body = JSONObject()
+      .put(
+        "system_instruction",
+        JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemInstruction))),
+      )
+      .put("contents", JSONArray().put(JSONObject().put("parts", parts)))
+
+    connection.outputStream.use { output ->
+      output.write(body.toString().toByteArray(Charsets.UTF_8))
+    }
+
+    val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
+
+    if (connection.responseCode !in 200..299) {
+      val response = stream.use { input ->
+        BufferedReader(InputStreamReader(input)).readText()
+      }
+      throw IllegalStateException("Gemini request failed: ${connection.responseCode} $response")
+    }
+
+    var transcript = ""
+    var revision = 0
+
+    stream.use { input ->
+      BufferedReader(InputStreamReader(input)).use { reader ->
+        val eventLines = mutableListOf<String>()
+
+        while (true) {
+          val line = reader.readLine() ?: break
+
+          if (line.isBlank()) {
+            val chunkText = parseEventChunk(eventLines)
+            eventLines.clear()
+
+            if (chunkText.isNullOrEmpty()) {
+              continue
+            }
+
+            transcript = TranscriptTextFormatter.mergeStreamTranscript(transcript, chunkText)
+            revision += 1
+            onSnapshot(TranscriptSnapshot(revision = revision, text = transcript.trim(), isFinal = false))
+            continue
+          }
+
+          if (line.startsWith("data:")) {
+            eventLines.add(line.removePrefix("data:").trimStart())
+          }
+        }
+
+        val trailingChunk = parseEventChunk(eventLines)
+        if (!trailingChunk.isNullOrEmpty()) {
+          transcript = TranscriptTextFormatter.mergeStreamTranscript(transcript, trailingChunk)
+          revision += 1
+          onSnapshot(TranscriptSnapshot(revision = revision, text = transcript.trim(), isFinal = false))
+        }
+      }
+    }
+
+    val finalTranscript = transcript.trim()
+    onSnapshot(
+      TranscriptSnapshot(
+        revision = revision + 1,
+        text = finalTranscript,
+        isFinal = true,
+      ),
+    )
+
+    return finalTranscript
+  }
+
+  private fun parseEventChunk(eventLines: List<String>): String? {
+    if (eventLines.isEmpty()) {
+      return null
+    }
+
+    val eventPayload = eventLines.joinToString(separator = "\n").trim()
+    if (eventPayload.isEmpty() || eventPayload == "[DONE]") {
+      return null
+    }
+
+    val response = JSONObject(eventPayload)
+    val candidates = response.optJSONArray("candidates") ?: return null
+    if (candidates.length() == 0) {
+      return null
+    }
+
+    val parts = candidates.getJSONObject(0)
+      .optJSONObject("content")
+      ?.optJSONArray("parts") ?: return null
+
+    return TranscriptTextFormatter.joinParts(parts)
+  }
+}

@@ -7,6 +7,14 @@ require Pod::Executable.execute_command('node', ['-p',
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
+use_modular_headers!
+$RNFirebaseAnalyticsWithoutAdIdSupport = true
+
+# Keep fast prebuilt React Native artifacts, but download and wire in their
+# matching binaries while we generate standalone dSYMs during archive builds.
+ENV['RCT_USE_RN_DEP'] = '1'
+ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
+ENV['RCT_SYMBOLICATE_PREBUILT_FRAMEWORKS'] = '0'
 
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
@@ -14,7 +22,7 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
-target 'GemboardKeyboard' do
+target 'PlyńKeyboard' do
   config = use_native_modules!
 
   use_react_native!(
@@ -30,5 +38,79 @@ target 'GemboardKeyboard' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_configuration|
+        build_configuration.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        build_configuration.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+      end
+    end
+
+    installer.aggregate_targets.each do |aggregate_target|
+      aggregate_target.user_project.native_targets.each do |target|
+        target.build_configurations.each do |build_configuration|
+          build_configuration.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+          build_configuration.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+        end
+      end
+
+      aggregate_target.user_targets.each do |user_target|
+        next unless user_target.name == 'PlyńKeyboard'
+
+        phase_name = '[CP-User] Prepare React Native framework dSYMs'
+        phase = user_target.shell_script_build_phases.find { |build_phase| build_phase.name == phase_name }
+        phase ||= user_target.new_shell_script_build_phase(phase_name)
+        phase.shell_path = '/bin/sh'
+        phase.shell_script = <<~'SCRIPT'
+          set -eu
+
+          if [ "${ACTION:-}" != "install" ]; then
+            echo "note: Skipping React Native framework dSYM preparation for ACTION=${ACTION:-build}"
+            exit 0
+          fi
+
+          FRAMEWORKS_DIR="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          ARCHIVE_DSYMS_DIR="${DWARF_DSYM_FOLDER_PATH}"
+
+          if [ ! -d "$FRAMEWORKS_DIR" ]; then
+            echo "note: No embedded frameworks directory at $FRAMEWORKS_DIR"
+            exit 0
+          fi
+
+          mkdir -p "$ARCHIVE_DSYMS_DIR"
+
+          generate_framework_dsym() {
+            framework_name="$1"
+            framework_binary="$FRAMEWORKS_DIR/${framework_name}.framework/${framework_name}"
+            framework_dsym="$ARCHIVE_DSYMS_DIR/${framework_name}.framework.dSYM"
+
+            if [ ! -f "$framework_binary" ]; then
+              echo "note: Skipping ${framework_name}.framework because $framework_binary is missing"
+              return
+            fi
+
+            echo "note: Generating ${framework_name}.framework.dSYM"
+            dsymutil "$framework_binary" -o "$framework_dsym"
+          }
+
+          strip_embedded_framework_dsyms() {
+            framework_name="$1"
+            embedded_dsyms_dir="$FRAMEWORKS_DIR/${framework_name}.framework/dSYMs"
+
+            if [ -d "$embedded_dsyms_dir" ]; then
+              echo "note: Removing embedded dSYMs from ${framework_name}.framework"
+              rm -rf "$embedded_dsyms_dir"
+            fi
+          }
+
+          for framework_name in React ReactNativeDependencies hermesvm; do
+            generate_framework_dsym "$framework_name"
+            strip_embedded_framework_dsyms "$framework_name"
+          done
+        SCRIPT
+      end
+
+      aggregate_target.user_project.save
+    end
   end
 end

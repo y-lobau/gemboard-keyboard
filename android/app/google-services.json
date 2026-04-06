@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "233440192064",
+    "project_id": "Plyń-4c750",
+    "storage_bucket": "Plyń-4c750.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:233440192064:android:677966bce7b0004a52a1a5",
+        "android_client_info": {
+          "package_name": "com.holas.plynkeyboard"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpyHbuWS96In61vjSatw1kxsuD3gZIFRY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
