@@ -14,7 +14,7 @@ class PlyńSpeechModule(private val reactContext: ReactApplicationContext) :
   private val transcriptionClient = GeminiTranscriptionClient()
   private var recorder: WavAudioRecorder? = null
 
-  override fun getName(): String = "PlyńSpeech"
+  override fun getName(): String = "GemboardSpeech"
 
   @ReactMethod
   fun startRecording(promise: Promise) {
@@ -45,7 +45,7 @@ class PlyńSpeechModule(private val reactContext: ReactApplicationContext) :
     executor.execute {
       try {
         val outputFile = activeRecorder.stop()
-        val apiKey = PlyńPreferences.getSharedPreferences(reactContext).getString(PlyńPreferences.API_KEY, null)
+        val apiKey = PlynPreferences.getSharedPreferences(reactContext).getString(PlynPreferences.API_KEY, null)
           ?: throw IllegalStateException("Save your Gemini API key before recording.")
         val transcript = transcriptionClient.transcribeStream(reactContext, apiKey, outputFile) { _ -> }
         promise.resolve(transcript)

@@ -9,41 +9,38 @@ object TranscriptTextFormatter {
       return existing
     }
 
-    val normalizedIncoming = if (existing.isEmpty()) incoming.trim() else incoming
-    if (normalizedIncoming.isEmpty()) {
+    if (incoming.isBlank()) {
       return existing
     }
 
     if (existing.isEmpty()) {
-      return normalizedIncoming
+      return incoming
     }
 
-    if (normalizedIncoming.startsWith(existing)) {
-      return normalizedIncoming
+    if (incoming.startsWith(existing)) {
+      return incoming
     }
 
-    if (existing.startsWith(normalizedIncoming)) {
+    if (existing.startsWith(incoming)) {
       return existing
     }
 
-    val maxOverlap = min(existing.length, normalizedIncoming.length)
+    val maxOverlap = min(existing.length, incoming.length)
     for (overlap in maxOverlap downTo 1) {
-      if (existing.takeLast(overlap) == normalizedIncoming.take(overlap)) {
-        return existing + normalizedIncoming.drop(overlap)
+      if (existing.takeLast(overlap) == incoming.take(overlap)) {
+        return existing + incoming.drop(overlap)
       }
     }
 
-    return existing + normalizedIncoming
+    return existing + incoming
   }
 
   fun joinParts(parts: JSONArray): String {
-    val transcript = buildString {
+    return buildString {
       for (index in 0 until parts.length()) {
         append(parts.optJSONObject(index)?.optString("text").orEmpty())
       }
     }
-
-    return transcript.trim()
   }
 
   fun insertionPrefix(existingContextBeforeCursor: String?, incoming: String): String {

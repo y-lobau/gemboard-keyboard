@@ -25,11 +25,9 @@ Plyń is a React Native application with native keyboard integrations for speech
 - After the user releases the iOS keyboard microphone, the companion session must publish streamed Gemini transcript snapshots into shared app-group storage so the keyboard extension can update the active text input progressively.
 - The iOS keyboard extension must treat each shared transcript update as the latest full snapshot for the active utterance, replace only its own provisional insertion, and avoid duplicating text if newer snapshots arrive.
 - If the iOS keyboard microphone is pressed while the companion session is inactive, the keyboard must open the companion app so it can restore the session.
-- The host app main tab starts with Gemini API-key setup, then shows a compact onboarding summary with expandable details, followed by the recording controls and the live dictation draft.
+- The host app main tab starts with Gemini API-key setup, then shows a compact onboarding summary with expandable details, followed by a text draft area.
 - Once the Gemini API key is already saved, the first setup section collapses into a single tappable `Set up` header and expands the full setup controls only when the user opens it.
 - The expandable onboarding details explain how to enable the keyboard for the current platform, what an active companion session means, and include the manual companion-session controls on iOS.
-- The host app on both iOS and Android presents a microphone action, a delete-last-word action, a live dictation draft, and a listening waveform.
-- While host-app dictation is transcribing on iOS, streamed transcript snapshots must update the live draft progressively instead of waiting for only the final transcript.
 - The host app must show whether the companion session is currently active and refresh that state while the app is open.
 
 ## Configuration
@@ -66,7 +64,6 @@ Plyń is a React Native application with native keyboard integrations for speech
 - If Firebase Remote Config fetch fails, the app and keyboard must keep using the last persisted Gemini runtime configuration instead of replacing it with local hardcoded values.
 - If no persisted Gemini runtime configuration is available yet, speech capture must not attempt transcription and the user must see a clear missing-configuration error.
 - If transcription fails, the existing text stays unchanged and the user sees an error or retry-ready status.
-- If the transcription service returns no usable transcript text, the existing text stays unchanged and the host app shows a clear retry message that explains no text was produced, rather than implying speech was definitely recognized incorrectly.
 - If Gemini fails before any streamed transcript snapshot is inserted, the existing text stays unchanged and the user sees an error or retry-ready status.
 - If Gemini fails after one or more streamed transcript snapshots were already inserted, the latest inserted snapshot remains in place, no duplicate text is inserted, and the keyboard shows an error or retry-ready status.
 - If the iOS keyboard does not have a fresh shared transcript, inserting from the extension must leave the current text unchanged and show a ready-to-record hint instead.

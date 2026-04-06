@@ -3,6 +3,30 @@ import UIKit
 final class KeyboardViewController: UIInputViewController {
   private static let companionAppURL = URL(string: "plyn://")
   private static let sessionRecoveryURL = URL(string: "plyn://session")
+  private static let widgetSurfaceColor = UIColor(
+    red: 74.0 / 255.0,
+    green: 89.0 / 255.0,
+    blue: 66.0 / 255.0,
+    alpha: 1
+  )
+  private static let supportingTextColor = UIColor(
+    red: 60.0 / 255.0,
+    green: 72.0 / 255.0,
+    blue: 54.0 / 255.0,
+    alpha: 1
+  )
+  private static let accentColor = UIColor(
+    red: 226.0 / 255.0,
+    green: 217.0 / 255.0,
+    blue: 210.0 / 255.0,
+    alpha: 1
+  )
+  private static let buttonTrayColor = UIColor(
+    red: 104.0 / 255.0,
+    green: 121.0 / 255.0,
+    blue: 92.0 / 255.0,
+    alpha: 1
+  )
 
   private enum KeyboardPresentationState {
     case ready
@@ -20,8 +44,20 @@ final class KeyboardViewController: UIInputViewController {
     case processing
   }
 
-  private let commandTimeout: TimeInterval = 2.0
-  private let transcriptionTimeout: TimeInterval = 12.0
+  private var commandTimeout: TimeInterval {
+    PlynSharedStore.keyboardCommandTimeout()
+  }
+
+  private var transcriptionTimeout: TimeInterval {
+    PlynSharedStore.keyboardTranscriptionTimeout()
+  }
+
+  private var supportingInfoColor: UIColor {
+    traitCollection.userInterfaceStyle == .dark
+      ? Self.accentColor
+      : Self.supportingTextColor
+  }
+
   private let stateNotificationCallback: CFNotificationCallback = { _, observer, _, _, _ in
     guard let observer else {
       return
@@ -36,10 +72,14 @@ final class KeyboardViewController: UIInputViewController {
   private let rootStack = UIStackView()
   private let surfaceView = UIView()
   private let controlsRow = UIStackView()
+  private let utilityTray = UIView()
+  private let standardKeysRow = UIStackView()
   private let deleteButton = UIButton(type: .system)
   private let waveContainer = UIView()
   private let waveRow = UIStackView()
   private let micButton = UIButton(type: .system)
+  private let spaceButton = UIButton(type: .system)
+  private let enterButton = UIButton(type: .system)
   private let statusLabel = UILabel()
   private let nextKeyboardButton = UIButton(type: .system)
 
@@ -100,6 +140,24 @@ final class KeyboardViewController: UIInputViewController {
     reloadState()
   }
 
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+
+    guard previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else {
+      return
+    }
+
+    applyStaticPalette()
+    reloadState()
+  }
+
+  private func applyStaticPalette() {
+    surfaceView.backgroundColor = Self.widgetSurfaceColor
+    utilityTray.backgroundColor = Self.buttonTrayColor
+    utilityTray.layer.borderColor = Self.accentColor.withAlphaComponent(0.3).cgColor
+    nextKeyboardButton.tintColor = supportingInfoColor
+  }
+
   private func setupView() {
     view.backgroundColor = .clear
     view.isOpaque = false
@@ -112,18 +170,33 @@ final class KeyboardViewController: UIInputViewController {
     rootStack.translatesAutoresizingMaskIntoConstraints = false
 
     surfaceView.translatesAutoresizingMaskIntoConstraints = false
-    surfaceView.backgroundColor = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
-    surfaceView.layer.cornerRadius = 24
-    surfaceView.layer.borderWidth = 1
-    surfaceView.layer.borderColor = UIColor(white: 1, alpha: 0.06).cgColor
+    surfaceView.layer.cornerRadius = 22
+    surfaceView.layer.shadowColor = UIColor.black.withAlphaComponent(0.18).cgColor
+    surfaceView.layer.shadowOffset = CGSize(width: 0, height: 8)
+    surfaceView.layer.shadowOpacity = 1
+    surfaceView.layer.shadowRadius = 16
 
     controlsRow.axis = .horizontal
     controlsRow.alignment = .center
     controlsRow.distribution = .fill
-    controlsRow.spacing = 16
+    controlsRow.spacing = 10
     controlsRow.translatesAutoresizingMaskIntoConstraints = false
 
-    configureIconButton(deleteButton, symbol: "delete.left")
+    standardKeysRow.axis = .horizontal
+    standardKeysRow.alignment = .fill
+    standardKeysRow.distribution = .fill
+    standardKeysRow.spacing = 6
+    standardKeysRow.translatesAutoresizingMaskIntoConstraints = false
+
+    utilityTray.translatesAutoresizingMaskIntoConstraints = false
+    utilityTray.layer.cornerRadius = 12
+    utilityTray.layer.borderWidth = 1
+    utilityTray.layer.shadowColor = UIColor.black.withAlphaComponent(0.12).cgColor
+    utilityTray.layer.shadowOffset = CGSize(width: 0, height: 4)
+    utilityTray.layer.shadowOpacity = 1
+    utilityTray.layer.shadowRadius = 10
+
+    configureStandardKeyButton(deleteButton, symbol: "delete.left")
     deleteButton.addTarget(self, action: #selector(handleDeleteBackward), for: .touchUpInside)
 
     waveContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -154,14 +227,24 @@ final class KeyboardViewController: UIInputViewController {
     waveContainer.addSubview(waveRow)
 
     configureIconButton(micButton, symbol: "mic.fill")
-    micButton.backgroundColor = UIColor.white
+    micButton.backgroundColor = Self.accentColor
     micButton.tintColor = UIColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 1)
     micButton.addTarget(self, action: #selector(handleMicPressDown), for: .touchDown)
     micButton.addTarget(self, action: #selector(handleMicPressUp), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
 
-    controlsRow.addArrangedSubview(deleteButton)
+    configureStandardKeyButton(spaceButton, symbol: "space")
+    spaceButton.addTarget(self, action: #selector(handleInsertSpace), for: .touchUpInside)
+
+    configureStandardKeyButton(enterButton, symbol: "return.left")
+    enterButton.addTarget(self, action: #selector(handleInsertReturn), for: .touchUpInside)
+
     controlsRow.addArrangedSubview(waveContainer)
+    controlsRow.addArrangedSubview(utilityTray)
     controlsRow.addArrangedSubview(micButton)
+
+    standardKeysRow.addArrangedSubview(deleteButton)
+    standardKeysRow.addArrangedSubview(spaceButton)
+    standardKeysRow.addArrangedSubview(enterButton)
 
     statusLabel.translatesAutoresizingMaskIntoConstraints = false
     statusLabel.font = .systemFont(ofSize: 13, weight: .medium)
@@ -169,12 +252,14 @@ final class KeyboardViewController: UIInputViewController {
     statusLabel.numberOfLines = 2
 
     nextKeyboardButton.translatesAutoresizingMaskIntoConstraints = false
-    nextKeyboardButton.tintColor = UIColor(white: 0.88, alpha: 1)
     nextKeyboardButton.setImage(UIImage(systemName: "globe"), for: .normal)
-    nextKeyboardButton.alpha = 0.75
+    nextKeyboardButton.alpha = 0.9
     nextKeyboardButton.addTarget(self, action: #selector(handleNextKeyboard), for: .touchUpInside)
 
+    applyStaticPalette()
+
     surfaceView.addSubview(controlsRow)
+    utilityTray.addSubview(standardKeysRow)
     rootStack.addArrangedSubview(surfaceView)
     rootStack.addArrangedSubview(statusLabel)
     rootStack.addArrangedSubview(nextKeyboardButton)
@@ -185,16 +270,26 @@ final class KeyboardViewController: UIInputViewController {
       rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
       rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 10),
       rootStack.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -8),
-      surfaceView.heightAnchor.constraint(equalToConstant: 92),
+      surfaceView.heightAnchor.constraint(equalToConstant: 80),
       controlsRow.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor, constant: 16),
       controlsRow.trailingAnchor.constraint(equalTo: surfaceView.trailingAnchor, constant: -16),
-      controlsRow.topAnchor.constraint(equalTo: surfaceView.topAnchor, constant: 14),
-      controlsRow.bottomAnchor.constraint(equalTo: surfaceView.bottomAnchor, constant: -14),
-      deleteButton.widthAnchor.constraint(equalToConstant: 56),
-      deleteButton.heightAnchor.constraint(equalToConstant: 56),
+      controlsRow.topAnchor.constraint(equalTo: surfaceView.topAnchor, constant: 12),
+      controlsRow.bottomAnchor.constraint(equalTo: surfaceView.bottomAnchor, constant: -12),
       micButton.widthAnchor.constraint(equalToConstant: 56),
       micButton.heightAnchor.constraint(equalToConstant: 56),
       waveContainer.heightAnchor.constraint(equalToConstant: 56),
+      utilityTray.widthAnchor.constraint(equalToConstant: 132),
+      utilityTray.heightAnchor.constraint(equalToConstant: 40),
+      standardKeysRow.leadingAnchor.constraint(equalTo: utilityTray.leadingAnchor, constant: 6),
+      standardKeysRow.trailingAnchor.constraint(equalTo: utilityTray.trailingAnchor, constant: -6),
+      standardKeysRow.topAnchor.constraint(equalTo: utilityTray.topAnchor, constant: 6),
+      standardKeysRow.bottomAnchor.constraint(equalTo: utilityTray.bottomAnchor, constant: -6),
+      deleteButton.widthAnchor.constraint(equalToConstant: 34),
+      deleteButton.heightAnchor.constraint(equalToConstant: 28),
+      spaceButton.widthAnchor.constraint(equalToConstant: 44),
+      spaceButton.heightAnchor.constraint(equalToConstant: 28),
+      enterButton.widthAnchor.constraint(equalToConstant: 34),
+      enterButton.heightAnchor.constraint(equalToConstant: 28),
       waveRow.centerXAnchor.constraint(equalTo: waveContainer.centerXAnchor),
       waveRow.centerYAnchor.constraint(equalTo: waveContainer.centerYAnchor),
       waveRow.leadingAnchor.constraint(greaterThanOrEqualTo: waveContainer.leadingAnchor),
@@ -217,11 +312,32 @@ final class KeyboardViewController: UIInputViewController {
 
   private func configureIconButton(_ button: UIButton, symbol: String) {
     button.translatesAutoresizingMaskIntoConstraints = false
-    button.backgroundColor = UIColor(red: 0.21, green: 0.21, blue: 0.24, alpha: 1)
-    button.tintColor = UIColor(white: 0.97, alpha: 1)
+    button.backgroundColor = UIColor(red: 0.35, green: 0.38, blue: 0.46, alpha: 1)
+    button.tintColor = Self.accentColor
     button.layer.cornerRadius = 28
+    button.layer.shadowColor = UIColor.black.withAlphaComponent(0.24).cgColor
+    button.layer.shadowOffset = CGSize(width: 0, height: 1)
+    button.layer.shadowOpacity = 1
+    button.layer.shadowRadius = 1.5
     button.setImage(UIImage(systemName: symbol), for: .normal)
     button.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
+  }
+
+  private func configureStandardKeyButton(_ button: UIButton, title: String) {
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.backgroundColor = Self.accentColor
+    button.layer.cornerRadius = 8
+    button.layer.shadowColor = UIColor.black.withAlphaComponent(0.1).cgColor
+    button.layer.shadowOffset = CGSize(width: 0, height: 1)
+    button.layer.shadowOpacity = 1
+    button.layer.shadowRadius = 2
+  }
+
+  private func configureStandardKeyButton(_ button: UIButton, symbol: String) {
+    configureStandardKeyButton(button, title: "")
+    button.tintColor = UIColor(red: 0.1, green: 0.11, blue: 0.14, alpha: 1)
+    button.setImage(UIImage(systemName: symbol), for: .normal)
+    button.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
   }
 
   private func reloadState() {
@@ -329,9 +445,9 @@ final class KeyboardViewController: UIInputViewController {
 
   private func applyPresentationState(_ state: KeyboardPresentationState) {
     var statusText = ""
-    var statusColor = UIColor(white: 0.9, alpha: 1)
+    var statusColor = supportingInfoColor
     var micSymbol = "mic.fill"
-    var micBackground = UIColor.white
+    var micBackground = Self.accentColor
     var micTint = UIColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 1)
     var waveColor = UIColor(red: 0.68, green: 0.7, blue: 0.76, alpha: 0.9)
     var nextWaveAnimationMode: WaveAnimationMode = .idle
@@ -343,11 +459,16 @@ final class KeyboardViewController: UIInputViewController {
       statusText = "Утрымлівай мікрафон, каб дыктаваць"
     case .recording:
       statusText = "Слухаю... адпусці, каб адправіць"
-      statusColor = UIColor.white
+      statusColor = supportingInfoColor
       micSymbol = "stop.fill"
-      micBackground = UIColor(red: 0.97, green: 0.52, blue: 0.43, alpha: 1)
-      micTint = UIColor.white
-      waveColor = UIColor.white
+      micBackground = UIColor(
+        red: 206.0 / 255.0,
+        green: 81.0 / 255.0,
+        blue: 11.0 / 255.0,
+        alpha: 1
+      )
+      micTint = Self.accentColor
+      waveColor = Self.accentColor
       nextWaveAnimationMode = .recording
       deleteEnabled = false
     case .processing:
@@ -361,7 +482,7 @@ final class KeyboardViewController: UIInputViewController {
       deleteEnabled = false
     case .setupRequired:
       statusText = "Дадай API-ключ у праграме-кампаньёне"
-      statusColor = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
+      statusColor = supportingInfoColor
       micSymbol = "arrow.up.forward.app"
       micBackground = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
       micTint = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
@@ -369,24 +490,24 @@ final class KeyboardViewController: UIInputViewController {
       deleteEnabled = true
     case .sessionRequired:
       statusText = "Запусці праграму-кампаньён"
-      statusColor = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
+      statusColor = supportingInfoColor
       micSymbol = "bolt.fill"
       micBackground = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
       micTint = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
       waveColor = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 0.9)
     case .companionTimeout:
       statusText = transientErrorMessage ?? "Праграма-кампаньён не адказвае"
-      statusColor = UIColor(red: 0.97, green: 0.52, blue: 0.43, alpha: 1)
+      statusColor = supportingInfoColor
       micSymbol = "exclamationmark"
       micBackground = UIColor(red: 0.97, green: 0.52, blue: 0.43, alpha: 1)
-      micTint = UIColor.white
+      micTint = Self.accentColor
       waveColor = UIColor(red: 0.97, green: 0.52, blue: 0.43, alpha: 0.95)
     case .failed:
       statusText = "Памылка распазнавання. Паспрабуй яшчэ раз"
-      statusColor = UIColor(red: 0.97, green: 0.52, blue: 0.43, alpha: 1)
+      statusColor = supportingInfoColor
       micSymbol = "arrow.clockwise"
       micBackground = UIColor(red: 0.97, green: 0.52, blue: 0.43, alpha: 1)
-      micTint = UIColor.white
+      micTint = Self.accentColor
       waveColor = UIColor(red: 0.97, green: 0.52, blue: 0.43, alpha: 0.95)
     }
 
@@ -398,6 +519,13 @@ final class KeyboardViewController: UIInputViewController {
 
     deleteButton.isEnabled = deleteEnabled
     deleteButton.alpha = deleteEnabled ? 1 : 0.35
+
+    let utilityKeysEnabled = deleteEnabled
+    spaceButton.isEnabled = utilityKeysEnabled
+    spaceButton.alpha = utilityKeysEnabled ? 1 : 0.35
+    enterButton.isEnabled = utilityKeysEnabled
+    enterButton.alpha = utilityKeysEnabled ? 1 : 0.35
+
     micButton.isEnabled = controlsEnabled || isMicButtonPressed
     micButton.alpha = (controlsEnabled || isMicButtonPressed) ? 1 : 0.45
 
@@ -841,26 +969,45 @@ final class KeyboardViewController: UIInputViewController {
       return
     }
 
-    guard let context = textDocumentProxy.documentContextBeforeInput, !context.isEmpty else {
+    var context = textDocumentProxy.documentContextBeforeInput ?? ""
+
+    guard !context.isEmpty else {
+      return
+    }
+
+    // At the start of an empty line, collapse only the newline instead of
+    // deleting the preceding word as part of the word-erase behavior.
+    if context.last?.isNewline == true {
       textDocumentProxy.deleteBackward()
       return
     }
 
-    let trailingWhitespace = context.reversed().prefix { $0.isWhitespace }.count
-    let trimmedContext = String(context.dropLast(trailingWhitespace))
+    while let lastCharacter = context.last, lastCharacter.isWhitespace {
+      textDocumentProxy.deleteBackward()
+      context.removeLast()
+    }
 
-    if trimmedContext.isEmpty {
-      for _ in 0 ..< max(1, trailingWhitespace) {
-        textDocumentProxy.deleteBackward()
-      }
+    while let lastCharacter = context.last, !lastCharacter.isWhitespace {
+      textDocumentProxy.deleteBackward()
+      context.removeLast()
+    }
+  }
+
+  @objc
+  private func handleInsertSpace() {
+    guard spaceButton.isEnabled else {
       return
     }
 
-    let trailingWordLength = trimmedContext.reversed().prefix { !$0.isWhitespace }.count
-    let charactersToDelete = max(1, trailingWhitespace + trailingWordLength)
+    textDocumentProxy.insertText(" ")
+  }
 
-    for _ in 0 ..< charactersToDelete {
-      textDocumentProxy.deleteBackward()
+  @objc
+  private func handleInsertReturn() {
+    guard enterButton.isEnabled else {
+      return
     }
+
+    textDocumentProxy.insertText("\n")
   }
 }

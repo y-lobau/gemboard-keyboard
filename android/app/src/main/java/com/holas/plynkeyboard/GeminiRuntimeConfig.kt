@@ -9,8 +9,8 @@ object GeminiRuntimeConfig {
 
   fun model(context: Context): String {
     val storedModel =
-      PlyńPreferences.getSharedPreferences(context)
-        .getString(PlyńPreferences.RUNTIME_MODEL, null)
+      PlynPreferences.getSharedPreferences(context)
+        .getString(PlynPreferences.RUNTIME_MODEL, null)
         ?.trim()
         .orEmpty()
 
@@ -23,8 +23,8 @@ object GeminiRuntimeConfig {
 
   fun systemPrompt(context: Context): String {
     val storedPrompt =
-      PlyńPreferences.getSharedPreferences(context)
-        .getString(PlyńPreferences.RUNTIME_SYSTEM_PROMPT, null)
+      PlynPreferences.getSharedPreferences(context)
+        .getString(PlynPreferences.RUNTIME_SYSTEM_PROMPT, null)
         ?.trim()
         .orEmpty()
 

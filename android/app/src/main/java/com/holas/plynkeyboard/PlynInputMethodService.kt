@@ -39,6 +39,7 @@ class PlyńInputMethodService : InputMethodService() {
     val speechButton = root.findViewById<Button>(R.id.speechButton)
     val spaceButton = root.findViewById<Button>(R.id.spaceButton)
     val deleteButton = root.findViewById<Button>(R.id.deleteButton)
+    val enterButton = root.findViewById<Button>(R.id.enterButton)
 
     speechButton.setOnTouchListener { _, event ->
       when (event.action) {
@@ -60,6 +61,10 @@ class PlyńInputMethodService : InputMethodService() {
 
     deleteButton.setOnClickListener {
       currentInputConnection?.deleteSurroundingText(1, 0)
+    }
+
+    enterButton.setOnClickListener {
+      currentInputConnection?.commitText("\n", 1)
     }
 
     updateStatus(getString(R.string.Plyń_hold_to_talk))
@@ -91,7 +96,7 @@ class PlyńInputMethodService : InputMethodService() {
       return
     }
 
-    val apiKey = PlyńPreferences.getSharedPreferences(this).getString(PlyńPreferences.API_KEY, null)
+    val apiKey = PlynPreferences.getSharedPreferences(this).getString(PlynPreferences.API_KEY, null)
 
     if (apiKey.isNullOrBlank()) {
       updateStatus(getString(R.string.Plyń_missing_key))
@@ -174,7 +179,7 @@ class PlyńInputMethodService : InputMethodService() {
         // Refresh runtime config on the transcription worker so this utterance
         // uses the latest activated Firebase model when it is available.
         FirebaseRemoteRuntimeConfig.refresh(this)
-        val apiKey = PlyńPreferences.getSharedPreferences(this).getString(PlyńPreferences.API_KEY, null)
+        val apiKey = PlynPreferences.getSharedPreferences(this).getString(PlynPreferences.API_KEY, null)
           ?: throw IllegalStateException(getString(R.string.Plyń_missing_key))
         val transcript = transcriptionClient.transcribeStream(this, apiKey, audioFile) { snapshot ->
           mainHandler.post {

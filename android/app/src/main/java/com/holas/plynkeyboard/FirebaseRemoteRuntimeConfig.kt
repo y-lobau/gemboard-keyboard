@@ -11,7 +11,7 @@ object FirebaseRemoteRuntimeConfig {
   private const val FETCH_TIMEOUT_MILLIS = 10_000L
 
   fun refresh(context: Context) {
-    runCatching {
+    runCatching<Unit> {
       val remoteConfig = FirebaseRemoteConfig.getInstance()
       val settings =
         FirebaseRemoteConfigSettings.Builder()
@@ -26,13 +26,13 @@ object FirebaseRemoteRuntimeConfig {
       val systemPrompt = remoteConfig.getString(SYSTEM_PROMPT_KEY).trim()
 
       if (model.isEmpty() || systemPrompt.isEmpty()) {
-        return
+        return@runCatching
       }
 
-      PlyńPreferences.getSharedPreferences(context)
+      PlynPreferences.getSharedPreferences(context)
         .edit()
-        .putString(PlyńPreferences.RUNTIME_MODEL, model)
-        .putString(PlyńPreferences.RUNTIME_SYSTEM_PROMPT, systemPrompt)
+        .putString(PlynPreferences.RUNTIME_MODEL, model)
+        .putString(PlynPreferences.RUNTIME_SYSTEM_PROMPT, systemPrompt)
         .apply()
     }
   }

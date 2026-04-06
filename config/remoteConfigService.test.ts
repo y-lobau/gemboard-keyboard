@@ -43,6 +43,10 @@ beforeEach(() => {
         return 'gemini-3.1-flash-preview';
       case 'gemini_system_prompt':
         return 'Return only Belarusian transcript text.';
+      case 'keyboard_command_timeout_seconds':
+        return '3.5';
+      case 'keyboard_transcription_timeout_seconds':
+        return '24';
       case 'gemini_cost_input_text':
         return '1';
       case 'gemini_cost_input_audio':
@@ -66,6 +70,10 @@ test('bundled fallback runtime config uses the 3.1 flash preview model', () => {
 test('persists bundled fallback runtime config when Firebase returns empty model settings', async () => {
   mockGetString.mockImplementation((key: string) => {
     switch (key) {
+      case 'keyboard_command_timeout_seconds':
+        return '3.5';
+      case 'keyboard_transcription_timeout_seconds':
+        return '24';
       case 'gemini_cost_input_text':
         return '1';
       case 'gemini_cost_input_audio':
@@ -134,6 +142,8 @@ test('fetches transcription cost rates on iOS release builds', async () => {
     expect(configModule.saveRuntimeConfig).toHaveBeenCalledWith({
       model: 'gemini-3.1-flash-preview',
       systemPrompt: 'Return only Belarusian transcript text.',
+      keyboardCommandTimeout: 3.5,
+      keyboardTranscriptionTimeout: 24,
     });
     expect(result).toEqual({
       inputText: 1,
@@ -146,4 +156,41 @@ test('fetches transcription cost rates on iOS release builds', async () => {
     devGlobal.__DEV__ = previousDev;
     jest.resetModules();
   }
+});
+
+test('falls back to bundled keyboard timeout values when Firebase timeout config is invalid', async () => {
+  mockGetString.mockImplementation((key: string) => {
+    switch (key) {
+      case 'gemini_model':
+        return 'gemini-3.1-flash-preview';
+      case 'gemini_system_prompt':
+        return 'Return only Belarusian transcript text.';
+      case 'keyboard_command_timeout_seconds':
+        return '-1';
+      case 'keyboard_transcription_timeout_seconds':
+        return 'not-a-number';
+      case 'gemini_cost_input_text':
+        return '1';
+      case 'gemini_cost_input_audio':
+        return '2';
+      case 'gemini_cost_input_cache_text':
+        return '3';
+      case 'gemini_cost_input_cache_audio':
+        return '4';
+      case 'gemini_cost_output_text':
+        return '5';
+      default:
+        return '';
+    }
+  });
+
+  await syncRemoteRuntimeConfig(configModule);
+
+  expect(configModule.saveRuntimeConfig).toHaveBeenCalledWith({
+    model: 'gemini-3.1-flash-preview',
+    systemPrompt: 'Return only Belarusian transcript text.',
+    keyboardCommandTimeout: bundledRuntimeConfig.keyboardCommandTimeout,
+    keyboardTranscriptionTimeout:
+      bundledRuntimeConfig.keyboardTranscriptionTimeout,
+  });
 });

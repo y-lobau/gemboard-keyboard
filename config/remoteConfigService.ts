@@ -5,12 +5,21 @@ import {recordNonFatalCrash} from '../services/crashlyticsService';
 const REMOTE_CONFIG_KEYS = {
   model: 'gemini_model',
   systemPrompt: 'gemini_system_prompt',
+  keyboardCommandTimeout: 'keyboard_command_timeout_seconds',
+  keyboardTranscriptionTimeout: 'keyboard_transcription_timeout_seconds',
   inputTextCost: 'gemini_cost_input_text',
   inputAudioCost: 'gemini_cost_input_audio',
   inputCacheTextCost: 'gemini_cost_input_cache_text',
   inputCacheAudioCost: 'gemini_cost_input_cache_audio',
   outputTextCost: 'gemini_cost_output_text',
 } as const;
+
+export type RuntimeConfigPayload = {
+  model: string;
+  systemPrompt: string;
+  keyboardCommandTimeout: number;
+  keyboardTranscriptionTimeout: number;
+};
 
 export type TranscriptionCostRates = {
   inputText: number;
@@ -29,7 +38,7 @@ export const emptyTranscriptionCostRates: TranscriptionCostRates = {
 };
 
 type RuntimeConfigModule = {
-  saveRuntimeConfig: (config: {model: string; systemPrompt: string}) => Promise<void>;
+  saveRuntimeConfig: (config: RuntimeConfigPayload) => Promise<void>;
 };
 
 let syncPromise: Promise<TranscriptionCostRates> | null = null;
@@ -38,6 +47,8 @@ export const bundledRuntimeConfig = {
   model: 'gemini-3.1-flash-preview',
   systemPrompt:
     'Transcribe supplied audio into Belarusian dictation text only. Return only the final Belarusian transcript.',
+  keyboardCommandTimeout: 2,
+  keyboardTranscriptionTimeout: 12,
 } as const;
 
 function normalizeString(value: string | null | undefined) {
@@ -54,6 +65,17 @@ function normalizeNumber(value: string | null | undefined) {
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function normalizePositiveNumber(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? '';
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 export async function syncRemoteRuntimeConfig(configModule: RuntimeConfigModule) {
@@ -84,6 +106,14 @@ export async function syncRemoteRuntimeConfig(configModule: RuntimeConfigModule)
 
       const model = normalizeString(client.getString(REMOTE_CONFIG_KEYS.model));
       const systemPrompt = normalizeString(client.getString(REMOTE_CONFIG_KEYS.systemPrompt));
+      const keyboardCommandTimeout =
+        normalizePositiveNumber(
+          client.getString(REMOTE_CONFIG_KEYS.keyboardCommandTimeout),
+        ) ?? bundledRuntimeConfig.keyboardCommandTimeout;
+      const keyboardTranscriptionTimeout =
+        normalizePositiveNumber(
+          client.getString(REMOTE_CONFIG_KEYS.keyboardTranscriptionTimeout),
+        ) ?? bundledRuntimeConfig.keyboardTranscriptionTimeout;
 
       if (!model || !systemPrompt) {
         await configModule.saveRuntimeConfig(bundledRuntimeConfig);
@@ -98,6 +128,8 @@ export async function syncRemoteRuntimeConfig(configModule: RuntimeConfigModule)
       await configModule.saveRuntimeConfig({
         model,
         systemPrompt,
+        keyboardCommandTimeout,
+        keyboardTranscriptionTimeout,
       });
       await trackEvent('remote_config_sync_result', {
         result: 'success',

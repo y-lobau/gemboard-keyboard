@@ -8,7 +8,7 @@ import com.facebook.react.uimanager.ViewManager
 class PlyńPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
     listOf(
-      PlyńConfigModule(reactContext),
+      PlynConfigModule(reactContext),
       PlyńSpeechModule(reactContext),
     )
 
