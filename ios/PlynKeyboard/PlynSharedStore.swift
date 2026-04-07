@@ -32,6 +32,7 @@ enum PlynSharedStore {
   private static let latestTranscriptStateKey = "latest_transcript_state"
   private static let latestTranscriptErrorCodeKey = "latest_transcript_error_code"
   private static let sessionActiveKey = "ios_session_active"
+  private static let keyboardVisibleKey = "ios_keyboard_visible"
   private static let sessionHeartbeatUpdatedAtKey = "ios_session_heartbeat_updated_at"
   private static let keyboardCommandKey = "ios_keyboard_command"
   private static let keyboardCommandUpdatedAtKey = "ios_keyboard_command_updated_at"
@@ -474,6 +475,16 @@ enum PlynSharedStore {
       defaults.removeObject(forKey: sessionHeartbeatUpdatedAtKey)
     }
     saveKeyboardStatus(active ? .ready : .inactive)
+    defaults.synchronize()
+    postStateNotification()
+  }
+
+  static func isKeyboardVisible() -> Bool {
+    defaults.bool(forKey: keyboardVisibleKey)
+  }
+
+  static func saveKeyboardVisible(_ visible: Bool) {
+    defaults.set(visible, forKey: keyboardVisibleKey)
     defaults.synchronize()
     postStateNotification()
   }

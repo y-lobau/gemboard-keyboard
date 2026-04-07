@@ -35,6 +35,7 @@ final class PlyńSessionManager {
   private var transcriptionTask: Task<Void, Never>?
   private var activeTranscriptSessionID: String?
   private var transcriptSnapshotSequence = 0
+  private var lastObservedKeyboardVisible: Bool?
 
   private func log(_ message: String) {
     NSLog("[PlyńSession] \(message)")
@@ -147,6 +148,13 @@ final class PlyńSessionManager {
       ) { [weak self] _ in
         self?.recoverSessionIfNeededAsync(reason: "app_did_become_active")
       },
+      center.addObserver(
+        forName: UIApplication.didEnterBackgroundNotification,
+        object: nil,
+        queue: nil
+      ) { [weak self] _ in
+        self?.evaluateKeyboardVisibilityDemandAsync(forceEvaluation: true)
+      },
     ]
   }
 
@@ -204,6 +212,50 @@ final class PlyńSessionManager {
   private func recoverSessionIfNeededAsync(reason: String) {
     workQueue.async {
       _ = self.recoverSessionIfNeeded(reason: reason)
+    }
+  }
+
+  private func evaluateKeyboardVisibilityDemandAsync(forceEvaluation: Bool = false) {
+    workQueue.async {
+      self.evaluateKeyboardVisibilityDemand(forceEvaluation: forceEvaluation)
+    }
+  }
+
+  private func evaluateKeyboardVisibilityDemand(forceEvaluation: Bool = false) {
+    let isKeyboardVisible = PlynSharedStore.isKeyboardVisible()
+
+    if !forceEvaluation, lastObservedKeyboardVisible == isKeyboardVisible {
+      return
+    }
+
+    lastObservedKeyboardVisible = isKeyboardVisible
+
+    let isSessionActive = sessionSuspendedForAppRecording || engine.isRunning
+    let isAppBackgrounded = UIApplication.shared.applicationState == .background
+    let action = PlynCompanionSessionDemand.actionForKeyboardVisibility(
+      isKeyboardVisible: isKeyboardVisible,
+      isAppBackgrounded: isAppBackgrounded,
+      isSessionActive: isSessionActive,
+      hasAPIKey: PlynSharedStore.hasApiKey()
+    )
+
+    guard action != .none else {
+      return
+    }
+
+    log("evaluateKeyboardVisibilityDemand visible=\(isKeyboardVisible) appBackgrounded=\(isAppBackgrounded) action=\(action.rawValue)")
+
+    switch action {
+    case .start:
+      do {
+        _ = try startSession()
+      } catch {
+        log("evaluateKeyboardVisibilityDemand startFailed error=\(error.localizedDescription)")
+      }
+    case .stop:
+      stopSession()
+    case .none:
+      break
     }
   }
 
@@ -290,6 +342,7 @@ final class PlyńSessionManager {
     let timer = DispatchSource.makeTimerSource(queue: workQueue)
     timer.schedule(deadline: .now(), repeating: .milliseconds(250))
     timer.setEventHandler { [weak self] in
+      self?.evaluateKeyboardVisibilityDemand()
       self?.refreshSharedSessionHeartbeatIfNeeded()
       self?.processPendingKeyboardCommand()
     }

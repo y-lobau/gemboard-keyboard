@@ -1,5 +1,26 @@
 import Foundation
 
+enum PlynCompanionSessionDemandAction: String {
+  case none
+  case start
+  case stop
+}
+
+enum PlynCompanionSessionDemand {
+  static func actionForKeyboardVisibility(
+    isKeyboardVisible: Bool,
+    isAppBackgrounded: Bool,
+    isSessionActive: Bool,
+    hasAPIKey: Bool
+  ) -> PlynCompanionSessionDemandAction {
+    if isKeyboardVisible {
+      return hasAPIKey && !isSessionActive ? .start : .none
+    }
+
+    return isAppBackgrounded && isSessionActive ? .stop : .none
+  }
+}
+
 struct PlynSessionRecoveryState {
   private(set) var shouldKeepSessionActive = false
   private(set) var isSuspendedForAppRecording = false

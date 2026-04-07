@@ -114,12 +114,19 @@ final class KeyboardViewController: UIInputViewController {
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    PlynSharedStore.saveKeyboardVisible(true)
     startRefreshing()
     reloadState()
   }
 
   override func viewDidDisappear(_ animated: Bool) {
     super.viewDidDisappear(animated)
+    if PlynSharedStore.keyboardStatus() == .recording {
+      PlynSharedStore.saveKeyboardCommand(.stopCapture)
+    }
+    PlynSharedStore.saveKeyboardVisible(false)
+    isMicButtonPressed = false
+    pendingStopAfterRecordingStarts = false
     refreshTimer?.invalidate()
     refreshTimer = nil
     stopWaveAnimation()
@@ -133,6 +140,7 @@ final class KeyboardViewController: UIInputViewController {
       CFNotificationName(PlynSharedStore.stateNotificationName as CFString),
       nil
     )
+    PlynSharedStore.saveKeyboardVisible(false)
   }
 
   override func textDidChange(_ textInput: UITextInput?) {
