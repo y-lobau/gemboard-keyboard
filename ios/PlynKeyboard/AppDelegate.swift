@@ -26,20 +26,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
   private func startCompanionSessionIfNeeded() {
     guard PlynSharedStore.hasApiKey() else {
+      PlynSharedStore.appendCompanionDebugLog("startCompanionSessionIfNeeded skipped hasApiKey=false")
       return
     }
+
+    PlynSharedStore.appendCompanionDebugLog("startCompanionSessionIfNeeded begin sessionActive=\(PlynSharedStore.isSessionActive())")
+    PlynSharedStore.markSessionRecoveryAttempt()
+    PlynSharedStore.appendCompanionDebugLog("marked session recovery attempt")
 
     let status = PlyńSessionManager.shared.getStatus()
     guard (status["isActive"] as? Bool) != true else {
       PlynSharedStore.refreshSessionHeartbeat()
+      PlynSharedStore.appendCompanionDebugLog("startCompanionSessionIfNeeded reused active session")
       NSLog("[AppDelegate] refreshed companion heartbeat during app lifecycle")
       return
     }
 
     do {
       _ = try PlyńSessionManager.shared.startSession()
+      PlynSharedStore.appendCompanionDebugLog("startCompanionSessionIfNeeded started session")
       NSLog("[AppDelegate] companion session started during app lifecycle")
     } catch {
+      PlynSharedStore.appendCompanionDebugLog("startCompanionSessionIfNeeded failed error=\(error.localizedDescription)")
       NSLog("[AppDelegate] failed to start companion session: \(error.localizedDescription)")
     }
   }
@@ -48,11 +56,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    PlynSharedStore.appendCompanionDebugLog("application didFinishLaunching")
     if FirebaseApp.app() == nil {
       FirebaseApp.configure()
+      PlynSharedStore.appendCompanionDebugLog("firebase configured during launch")
     }
 
     PlyńSessionManager.shared.configure()
+    PlynSharedStore.appendCompanionDebugLog("session manager configured during launch")
     startCompanionSessionIfNeeded()
 
     let delegate = ReactNativeDelegate()
@@ -75,10 +86,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   }
 
   func applicationDidBecomeActive(_ application: UIApplication) {
+    PlynSharedStore.appendCompanionDebugLog("applicationDidBecomeActive")
     startCompanionSessionIfNeeded()
   }
 
   func applicationWillEnterForeground(_ application: UIApplication) {
+    PlynSharedStore.appendCompanionDebugLog("applicationWillEnterForeground")
     startCompanionSessionIfNeeded()
   }
 
@@ -91,7 +104,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
+    PlynSharedStore.appendCompanionDebugLog("application open url=\(url.absoluteString)")
     if url.scheme == "plyn", url.host == "session" {
+      PlynSharedStore.appendCompanionDebugLog("handling session recovery deep link")
       startCompanionSessionIfNeeded()
     }
 

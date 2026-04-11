@@ -34,6 +34,7 @@ final class KeyboardViewController: UIInputViewController {
     case processing
     case setupRequired
     case sessionRequired
+    case sessionStarting
     case companionTimeout
     case failed
   }
@@ -87,6 +88,8 @@ final class KeyboardViewController: UIInputViewController {
   private var waveBarHeightConstraints: [NSLayoutConstraint] = []
   private var refreshTimer: Timer?
   private var waveAnimationTimer: Timer?
+  private var deleteRepeatStartTimer: Timer?
+  private var deleteRepeatTimer: Timer?
   private var lastAppliedTranscriptSessionID = ""
   private var lastAppliedTranscriptSequence = 0
   private var lastAppliedTranscriptText = ""
@@ -99,6 +102,8 @@ final class KeyboardViewController: UIInputViewController {
   private var transientErrorMessage: String?
   private var waveAnimationMode: WaveAnimationMode = .idle
   private var waveAnimationStep: Int = 0
+  private let deleteRepeatInitialDelay: TimeInterval = 0.35
+  private let deleteRepeatInterval: TimeInterval = 0.07
 
   private func logDebug(_ message: String) {
     NSLog("[PlyńKeyboardExtension] \(message)")
@@ -119,17 +124,24 @@ final class KeyboardViewController: UIInputViewController {
     reloadState()
   }
 
-  override func viewDidDisappear(_ animated: Bool) {
-    super.viewDidDisappear(animated)
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+
     if PlynSharedStore.keyboardStatus() == .recording {
       PlynSharedStore.saveKeyboardCommand(.stopCapture)
     }
+
     PlynSharedStore.saveKeyboardVisible(false)
     isMicButtonPressed = false
     pendingStopAfterRecordingStarts = false
+    stopDeleteRepeat()
     refreshTimer?.invalidate()
     refreshTimer = nil
     stopWaveAnimation()
+  }
+
+  override func viewDidDisappear(_ animated: Bool) {
+    super.viewDidDisappear(animated)
   }
 
   deinit {
@@ -141,6 +153,7 @@ final class KeyboardViewController: UIInputViewController {
       nil
     )
     PlynSharedStore.saveKeyboardVisible(false)
+    stopDeleteRepeat()
   }
 
   override func textDidChange(_ textInput: UITextInput?) {
@@ -205,7 +218,8 @@ final class KeyboardViewController: UIInputViewController {
     utilityTray.layer.shadowRadius = 10
 
     configureStandardKeyButton(deleteButton, symbol: "delete.left")
-    deleteButton.addTarget(self, action: #selector(handleDeleteBackward), for: .touchUpInside)
+    deleteButton.addTarget(self, action: #selector(handleDeletePressDown), for: .touchDown)
+    deleteButton.addTarget(self, action: #selector(handleDeletePressUp), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
 
     waveContainer.translatesAutoresizingMaskIntoConstraints = false
     waveContainer.backgroundColor = UIColor.clear
@@ -373,8 +387,22 @@ final class KeyboardViewController: UIInputViewController {
   private func hasResponsiveCompanionSession() -> Bool {
     PlynCompanionSessionLiveness.isResponsive(
       isSessionActive: PlynSharedStore.isSessionActive(),
-      heartbeatTimestamp: PlynSharedStore.sessionHeartbeatTimestamp()
+      heartbeatTimestamp: PlynSharedStore.sessionHeartbeatTimestamp(),
+      recoveryAttemptTimestamp: PlynSharedStore.sessionRecoveryAttemptTimestamp()
     )
+  }
+
+  private func isCompanionSessionStarting() -> Bool {
+    guard !PlynSharedStore.isSessionActive() else {
+      return false
+    }
+
+    guard let recoveryAttemptTimestamp = PlynSharedStore.sessionRecoveryAttemptTimestamp() else {
+      return false
+    }
+
+    let age = Date().timeIntervalSince(recoveryAttemptTimestamp)
+    return age >= 0 && age <= PlynCompanionSessionLiveness.recoveryAttemptWindow
   }
 
   private func makePresentationState(
@@ -387,6 +415,10 @@ final class KeyboardViewController: UIInputViewController {
 
     guard PlynSharedStore.hasApiKey() else {
       return .setupRequired
+    }
+
+    if isCompanionSessionStarting() {
+      return .sessionStarting
     }
 
     guard sessionActive else {
@@ -503,6 +535,16 @@ final class KeyboardViewController: UIInputViewController {
       micBackground = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
       micTint = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
       waveColor = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 0.9)
+    case .sessionStarting:
+      statusText = "Актывую праграму-кампаньён..."
+      statusColor = supportingInfoColor
+      micSymbol = "hourglass"
+      micBackground = UIColor(red: 0.28, green: 0.28, blue: 0.31, alpha: 1)
+      micTint = UIColor(white: 0.82, alpha: 1)
+      waveColor = UIColor(red: 0.86, green: 0.74, blue: 0.48, alpha: 0.95)
+      nextWaveAnimationMode = .processing
+      controlsEnabled = false
+      deleteEnabled = false
     case .companionTimeout:
       statusText = transientErrorMessage ?? "Праграма-кампаньён не адказвае"
       statusColor = supportingInfoColor
@@ -527,6 +569,9 @@ final class KeyboardViewController: UIInputViewController {
 
     deleteButton.isEnabled = deleteEnabled
     deleteButton.alpha = deleteEnabled ? 1 : 0.35
+    if !deleteEnabled {
+      stopDeleteRepeat()
+    }
 
     let utilityKeysEnabled = deleteEnabled
     spaceButton.isEnabled = utilityKeysEnabled
@@ -543,7 +588,7 @@ final class KeyboardViewController: UIInputViewController {
   private func updateWaveformAppearance(color: UIColor, mode: WaveAnimationMode) {
     let idleHeights: [CGFloat] = [6, 10, 14, 20, 26, 20, 14, 10, 6]
 
-    for (index, bar) in waveBars.enumerated() {
+    for bar in waveBars {
       bar.backgroundColor = color
       bar.alpha = mode == .idle ? 0.72 : 1
     }
@@ -847,6 +892,8 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     transientErrorMessage = nil
+    markCompanionSessionLaunchAttempt(url)
+
     if openCompanionAppThroughSharedApplication(url) {
       logDebug("sharedApplication launch reported success for url=\(url.absoluteString)")
       return
@@ -880,6 +927,11 @@ final class KeyboardViewController: UIInputViewController {
         self.reloadState()
       }
     }
+  }
+
+  private func markCompanionSessionLaunchAttempt(_ url: URL) {
+    PlynSharedStore.markSessionRecoveryAttempt()
+    logDebug("marked session recovery attempt before launching companion url=\(url.absoluteString)")
   }
 
   private func openCompanionAppThroughResponderChain(_ url: URL) -> Bool {
@@ -972,32 +1024,57 @@ final class KeyboardViewController: UIInputViewController {
   }
 
   @objc
-  private func handleDeleteBackward() {
+  private func handleDeletePressDown() {
     guard deleteButton.isEnabled else {
       return
     }
 
-    var context = textDocumentProxy.documentContextBeforeInput ?? ""
+    performDeleteBackward()
+    scheduleDeleteRepeat()
+  }
 
-    guard !context.isEmpty else {
+  @objc
+  private func handleDeletePressUp() {
+    stopDeleteRepeat()
+  }
+
+  private func scheduleDeleteRepeat() {
+    stopDeleteRepeat()
+
+    deleteRepeatStartTimer = Timer.scheduledTimer(withTimeInterval: deleteRepeatInitialDelay, repeats: false) { [weak self] _ in
+      guard let self else {
+        return
+      }
+
+      self.deleteRepeatStartTimer = nil
+      self.deleteRepeatTimer = Timer.scheduledTimer(withTimeInterval: self.deleteRepeatInterval, repeats: true) { [weak self] _ in
+        self?.performDeleteBackward()
+      }
+    }
+  }
+
+  private func stopDeleteRepeat() {
+    deleteRepeatStartTimer?.invalidate()
+    deleteRepeatStartTimer = nil
+    deleteRepeatTimer?.invalidate()
+    deleteRepeatTimer = nil
+  }
+
+  private func performDeleteBackward() {
+    guard deleteButton.isEnabled else {
       return
     }
 
-    // At the start of an empty line, collapse only the newline instead of
-    // deleting the preceding word as part of the word-erase behavior.
-    if context.last?.isNewline == true {
-      textDocumentProxy.deleteBackward()
+    let deleteCount = PlynKeyboardEraseBehavior.deleteCount(
+      for: textDocumentProxy.documentContextBeforeInput ?? ""
+    )
+
+    guard deleteCount > 0 else {
       return
     }
 
-    while let lastCharacter = context.last, lastCharacter.isWhitespace {
+    for _ in 0..<deleteCount {
       textDocumentProxy.deleteBackward()
-      context.removeLast()
-    }
-
-    while let lastCharacter = context.last, !lastCharacter.isWhitespace {
-      textDocumentProxy.deleteBackward()
-      context.removeLast()
     }
   }
 

@@ -44,7 +44,6 @@ type RuntimeConfigModule = {
 let syncPromise: Promise<TranscriptionCostRates> | null = null;
 
 export const bundledRuntimeConfig = {
-  model: 'gemini-3.1-flash-preview',
   systemPrompt:
     'Transcribe supplied audio into Belarusian dictation text only. Return only the final Belarusian transcript.',
   keyboardCommandTimeout: 2,
@@ -78,6 +77,10 @@ function normalizePositiveNumber(value: string | null | undefined) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function normalizeGeminiModel(value: string | null | undefined) {
+  return normalizeString(value);
+}
+
 export async function syncRemoteRuntimeConfig(configModule: RuntimeConfigModule) {
   if (syncPromise) {
     return syncPromise;
@@ -104,7 +107,7 @@ export async function syncRemoteRuntimeConfig(configModule: RuntimeConfigModule)
         outputText: normalizeNumber(client.getString(REMOTE_CONFIG_KEYS.outputTextCost)),
       };
 
-      const model = normalizeString(client.getString(REMOTE_CONFIG_KEYS.model));
+      const model = normalizeGeminiModel(client.getString(REMOTE_CONFIG_KEYS.model));
       const systemPrompt = normalizeString(client.getString(REMOTE_CONFIG_KEYS.systemPrompt));
       const keyboardCommandTimeout =
         normalizePositiveNumber(
@@ -116,9 +119,8 @@ export async function syncRemoteRuntimeConfig(configModule: RuntimeConfigModule)
         ) ?? bundledRuntimeConfig.keyboardTranscriptionTimeout;
 
       if (!model || !systemPrompt) {
-        await configModule.saveRuntimeConfig(bundledRuntimeConfig);
         await trackEvent('remote_config_sync_result', {
-          result: 'fallback',
+          result: !model ? 'missing_model' : 'fallback',
           has_model: toAnalyticsBool(Boolean(model)),
           has_system_prompt: toAnalyticsBool(Boolean(systemPrompt)),
         });
@@ -143,7 +145,6 @@ export async function syncRemoteRuntimeConfig(configModule: RuntimeConfigModule)
         error instanceof Error ? error : new Error(String(error)),
         'remote_config_sync_failed',
       );
-      await configModule.saveRuntimeConfig(bundledRuntimeConfig);
       await trackEvent('remote_config_sync_result', {
         result: 'fallback',
         has_model: toAnalyticsBool(false),

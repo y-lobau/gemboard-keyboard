@@ -13,13 +13,17 @@ Plyń is a React Native application with native keyboard integrations for speech
 ## Platform behavior
 
 - Android provides a system keyboard implemented as an `InputMethodService`.
+- All visible UI copy in the host app and the Android keyboard must be shown in Belarusian.
 - The Android keyboard exposes a press-and-hold microphone control, records audio while held, and only starts Gemini transcription after the user releases the microphone.
+- On Android, the host app onboarding must request microphone permission when it first opens on a device that has not granted that access yet, and it must also provide an explicit onboarding action to grant that permission later.
+- If the Android keyboard is used without a saved Gemini API key or without microphone permission, it must open the companion app directly into the setup flow so the user can finish the missing step there.
 - After the user releases the Android keyboard microphone, Gemini transcript text must appear progressively in the active input as streamed transcript snapshots arrive, without duplicating already inserted text or collapsing required spaces between words.
 - Android progressive dictation must use IME-safe provisional insertion while Gemini is still streaming and settle the latest transcript snapshot once the streamed response finishes.
 - iOS provides a system keyboard extension that can be enabled from iPhone keyboard settings.
 - The iOS keyboard extension shows only a compact erase control, a microphone control, and a live speech-wave indicator in its main layout.
 - The iOS keyboard extension microphone records only while the user keeps the button pressed and stops when the press ends.
 - The iOS keyboard extension erase control removes the previous word during normal ready-state editing, but if the cursor is on an empty line immediately after a newline, it removes only that newline boundary.
+- On both platforms, pressing the erase control begins deleting immediately, and holding it continues to repeat that platform's erase action after a short initial delay until the press ends.
 - While the iOS keyboard is recording or waiting for the companion session to accept or finish a transcription request, the erase, space, enter, and microphone controls must be visibly inactive.
 - The iOS companion app automatically starts a background recording session when a saved Gemini API key is available and microphone access is granted.
 - While that iOS companion session is active, the keyboard extension can trigger speech capture, receive the Gemini transcript through shared app-group storage, and insert it into the active text input without a manual round trip through the app for each utterance.
@@ -32,6 +36,7 @@ Plyń is a React Native application with native keyboard integrations for speech
 - The host app main tab starts with Gemini API-key setup, then shows a compact onboarding summary with expandable details, followed by a text draft area.
 - Once the Gemini API key is already saved, the first setup section collapses into a single tappable `Set up` header and expands the full setup controls only when the user opens it.
 - The expandable onboarding details explain what an active companion session means and include platform help buttons for keyboard enablement plus the manual companion-session controls on iOS.
+- On Android, once a Gemini API key is saved in the host app, the setup card must treat Gemini as ready for keyboard use, and its readiness indicator must match that saved-key state.
 - The host app must persist the expanded or collapsed state of its collapsible sections so the same section state returns after the app restarts.
 - When the app or keyboard appends a new dictated utterance into existing text, it must insert separator whitespace when needed so consecutive sentences do not run together.
 - The host app must show whether the companion session is currently active and refresh that state while the app is open.
@@ -69,14 +74,17 @@ Plyń is a React Native application with native keyboard integrations for speech
 - If the iOS host app saves a Gemini API key successfully but cannot restart the companion session immediately afterward, it must still confirm that the key was saved and separately report that the companion session is inactive.
 - The iOS host app accepts a `plyn://session` deep link that brings the app into the foreground and immediately tries to restore the companion session.
 - If the iOS companion session is interrupted or suspended by another app's audio session, returning to the companion app must retry that background session automatically so the keyboard can recover without requiring a full app relaunch.
-- After the user reopens the iOS companion app to restore that session, the keyboard must keep treating the companion as available for a short handoff window so an immediate return to the keyboard does not fall back into the same `open companion app` loop.
+- As soon as the iOS keyboard initiates the companion-app recovery flow, it must treat that handoff as in-progress for a short recovery window so even a near-immediate return to the keyboard does not fall back into the same `open companion app` loop before app-side lifecycle callbacks finish.
+- If iOS cannot provide a valid microphone input format when the companion session starts, the host app must keep running, leave the companion session inactive, and report the start failure through diagnostics instead of crashing.
+- On iOS, the host app must expose a visible debug entry point in the top onboarding card that opens a debug panel showing the shared handoff state and recent keyboard and companion timelines from the app-group container.
 - The host app accepts a `plyn://debug/launch` deep link that opens an in-app full-screen preview of the iOS loading view using the same launch logo artwork and background color for visual verification.
 
 ## Failure handling
 
 - If no API key is available, speech capture must not attempt transcription and the user must see a clear setup error.
-- If Firebase Remote Config fetch fails, the app and keyboard must keep using the last persisted Gemini runtime configuration and otherwise fall back to the bundled default Gemini model `gemini-3.1-flash-preview`, the bundled default system prompt, and the bundled default keyboard timeout values.
-- If Firebase Remote Config returns empty runtime transcription values and no persisted Gemini runtime configuration is available yet, the app must seed native storage with the bundled default Gemini model `gemini-3.1-flash-preview`, the bundled default system prompt, and the bundled default keyboard timeout values so speech capture can still proceed.
+- If the Android keyboard does not have microphone permission yet, speech capture must not start, the user must see a clear Belarusian setup hint, and the companion app must open so microphone access can be granted there.
+- If Firebase Remote Config fetch fails, the app and keyboard must keep using only the last persisted Gemini runtime configuration that was previously saved from Firebase Remote Config, while still falling back to the bundled timeout values when timeout values are invalid or absent.
+- If Firebase Remote Config returns an empty or missing Gemini model value, the app must not seed or substitute any model value locally, and dictation must fail with a runtime configuration error until Firebase provides a model.
 - If transcription fails, the existing text stays unchanged and the user sees an error or retry-ready status.
 - If Gemini fails before any streamed transcript snapshot is inserted, the existing text stays unchanged and the user sees an error or retry-ready status.
 - If Gemini fails after one or more streamed transcript snapshots were already inserted, the latest inserted snapshot remains in place, no duplicate text is inserted, and the keyboard shows an error or retry-ready status.

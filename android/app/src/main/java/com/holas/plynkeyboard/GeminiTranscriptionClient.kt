@@ -27,6 +27,7 @@ class GeminiTranscriptionClient {
     onSnapshot: (TranscriptSnapshot) -> Unit,
   ): String {
     val model = GeminiRuntimeConfig.model(context)
+      ?: throw IllegalStateException("Адкрыйце Plyń, каб атрымаць канфігурацыю дыктоўкі з Firebase.")
     val systemInstruction = GeminiRuntimeConfig.systemPrompt(context)
     val endpoint = URL(
       "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$apiKey",

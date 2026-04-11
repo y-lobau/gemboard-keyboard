@@ -1,13 +1,17 @@
 <resources>
     <string name="app_name">Plyń</string>
     <string name="Plyń_ime_name">Plyń</string>
-    <string name="Plyń_hold_to_talk">Hold the orange button and speak.</string>
-    <string name="Plyń_listening">Listening… release to transcribe.</string>
-    <string name="Plyń_transcribing">Transcribing with Gemini…</string>
-    <string name="Plyń_streaming">Updating transcript…</string>
-    <string name="Plyń_inserted">Transcript inserted.</string>
-    <string name="Plyń_missing_key">Save a Gemini API key in the Plyń app first.</string>
-    <string name="Plyń_missing_permission">Grant microphone permission in the Plyń app first.</string>
-    <string name="Plyń_no_speech">No speech was detected.</string>
-    <string name="Plyń_generic_error">Plyń hit an unexpected error.</string>
+    <string name="Plyń_hold_to_talk">Утрымлівайце мікрафон, каб дыктаваць.</string>
+    <string name="Plyń_listening">Слухаю... адпусціце, каб расшыфраваць.</string>
+    <string name="Plyń_transcribing">Расшыфроўваю з Gemini...</string>
+    <string name="Plyń_streaming">Абнаўляю транскрыпт...</string>
+    <string name="Plyń_inserted">Транскрыпт устаўлены.</string>
+    <string name="Plyń_missing_key">Спачатку захавайце API-ключ Gemini ў праграме Plyń.</string>
+    <string name="Plyń_missing_permission">Спачатку дайце доступ да мікрафона ў праграме Plyń.</string>
+    <string name="Plyń_no_speech">Маўленне не выяўлена.</string>
+    <string name="Plyń_generic_error">У Plyń здарылася нечаканая памылка.</string>
+    <string name="Plyń_speech_button">Мікрафон</string>
+    <string name="Plyń_delete_button">⌫</string>
+    <string name="Plyń_space_button">space</string>
+    <string name="Plyń_enter_button">↵</string>
 </resources>

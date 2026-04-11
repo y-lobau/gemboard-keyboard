@@ -22,10 +22,10 @@ object FirebaseRemoteRuntimeConfig {
       Tasks.await(remoteConfig.setConfigSettingsAsync(settings))
       Tasks.await(remoteConfig.fetchAndActivate())
 
-      val model = remoteConfig.getString(MODEL_KEY).trim()
+      val model = GeminiRuntimeConfig.normalizeModel(remoteConfig.getString(MODEL_KEY))
       val systemPrompt = remoteConfig.getString(SYSTEM_PROMPT_KEY).trim()
 
-      if (model.isEmpty() || systemPrompt.isEmpty()) {
+      if (model.isNullOrEmpty() || systemPrompt.isEmpty()) {
         return@runCatching
       }
 

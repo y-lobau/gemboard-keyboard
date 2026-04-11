@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Linking,
   NativeModules,
+  PermissionsAndroid,
   Platform,
   StyleSheet,
 } from 'react-native';
@@ -171,6 +172,25 @@ const configModule = {
   clearLatestTranscript: jest.fn().mockResolvedValue(undefined),
   resetTokenUsageSummary: jest.fn().mockResolvedValue(undefined),
   getTokenUsageSummary: jest.fn(async () => currentTokenUsageSummary),
+  getDebugSnapshot: jest.fn().mockResolvedValue({
+    usesAppGroupDefaults: true,
+    appGroupIdentifier: 'group.com.holas.plynkeyboard',
+    hasApiKey: true,
+    keyboardVisible: true,
+    keyboardStatus: 'inactive',
+    keyboardCommand: 'none',
+    keyboardStatusUpdatedAt: 1_775_927_200,
+    keyboardCommandUpdatedAt: 1_775_927_200,
+    keyboardLaunchDebug: '[2026-04-11T17:00:00Z] reloadState status=inactive',
+    keyboardDebugLog:
+      '[2026-04-11T17:00:00Z] reloadState status=inactive\n[2026-04-11T17:00:01Z] openCompanionApp',
+    sessionActive: false,
+    sessionHeartbeatUpdatedAt: null,
+    sessionRecoveryAttemptUpdatedAt: 1_775_927_201,
+    companionDebugLog:
+      '[2026-04-11T17:00:02Z] applicationDidBecomeActive\n[2026-04-11T17:00:03Z] startCompanionSessionIfNeeded begin',
+  }),
+  clearDebugSnapshot: jest.fn().mockResolvedValue(undefined),
 };
 const sessionModule = {
   getStatus: jest.fn().mockResolvedValue({ isActive: false }),
@@ -179,9 +199,13 @@ const sessionModule = {
 };
 
 let urlHandler: ((event: { url: string }) => void) | null = null;
+let checkPermissionSpy: jest.SpyInstance;
+let requestPermissionSpy: jest.SpyInstance;
 
 beforeEach(() => {
   NativeModules.PlyńConfig = configModule;
+  delete NativeModules.PlyńAppConfig;
+  delete NativeModules.GemboardConfig;
   NativeModules.PlyńSession = sessionModule;
   jest.clearAllMocks();
   configModule.getStatus.mockResolvedValue({
@@ -198,6 +222,25 @@ beforeEach(() => {
   configModule.getTokenUsageSummary.mockImplementation(
     async () => currentTokenUsageSummary,
   );
+  configModule.getDebugSnapshot.mockResolvedValue({
+    usesAppGroupDefaults: true,
+    appGroupIdentifier: 'group.com.holas.plynkeyboard',
+    hasApiKey: true,
+    keyboardVisible: true,
+    keyboardStatus: 'inactive',
+    keyboardCommand: 'none',
+    keyboardStatusUpdatedAt: 1_775_927_200,
+    keyboardCommandUpdatedAt: 1_775_927_200,
+    keyboardLaunchDebug: '[2026-04-11T17:00:00Z] reloadState status=inactive',
+    keyboardDebugLog:
+      '[2026-04-11T17:00:00Z] reloadState status=inactive\n[2026-04-11T17:00:01Z] openCompanionApp',
+    sessionActive: false,
+    sessionHeartbeatUpdatedAt: null,
+    sessionRecoveryAttemptUpdatedAt: 1_775_927_201,
+    companionDebugLog:
+      '[2026-04-11T17:00:02Z] applicationDidBecomeActive\n[2026-04-11T17:00:03Z] startCompanionSessionIfNeeded begin',
+  });
+  configModule.clearDebugSnapshot.mockResolvedValue(undefined);
   sessionModule.getStatus.mockResolvedValue({ isActive: false });
   sessionModule.startSession.mockResolvedValue({ isActive: true });
   sessionModule.stopSession.mockResolvedValue({ isActive: false });
@@ -267,6 +310,12 @@ beforeEach(() => {
         remove: jest.fn(),
       };
     });
+  checkPermissionSpy = jest
+    .spyOn(PermissionsAndroid, 'check')
+    .mockResolvedValue(true);
+  requestPermissionSpy = jest
+    .spyOn(PermissionsAndroid, 'request')
+    .mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
 });
 
 afterEach(() => {
@@ -665,6 +714,7 @@ test('triggers the Crashlytics test flow from the iOS debug deep link', async ()
   await ReactTestRenderer.act(async () => {
     ReactTestRenderer.create(<App />);
     await flushAsyncWork();
+    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   expect(mockInitializeCrashlytics).toHaveBeenCalledTimes(1);
@@ -686,8 +736,47 @@ test('opens the launch preview screen from the debug deep link', async () => {
   expect(queryByTestID(tree!, 'setup-toggle')).toHaveLength(0);
 });
 
+test('opens the iOS debug panel from the visible onboarding action and renders shared logs', async () => {
+  Platform.OS = 'ios';
+  configModule.getStatus.mockResolvedValue({
+    hasApiKey: true,
+    sessionActive: false,
+    platformMode: 'ios-keyboard-extension',
+  });
+
+  let tree: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(async () => {
+    tree = ReactTestRenderer.create(<App />);
+    await flushAsyncWork();
+  });
+
+  const openDebugButton = findByTestID(tree!, 'debug-open-button');
+
+  await ReactTestRenderer.act(async () => {
+    openDebugButton.props.onPress();
+    await flushAsyncWork();
+  });
+
+  expect(findByTestID(tree!, 'debug-panel')).toBeTruthy();
+  expect(configModule.getDebugSnapshot).toHaveBeenCalled();
+  expect(findByTestID(tree!, 'debug-keyboard-latest').props.children).toContain(
+    'reloadState status=inactive',
+  );
+  expect(findByTestID(tree!, 'debug-keyboard-log').props.children).toContain(
+    'openCompanionApp',
+  );
+  expect(findByTestID(tree!, 'debug-companion-log').props.children).toContain(
+    'applicationDidBecomeActive',
+  );
+});
+
 test('saves the Gemini API key through the native bridge', async () => {
   Platform.OS = 'android';
+  delete NativeModules.PlyńConfig;
+  delete NativeModules.PlyńAppConfig;
+  NativeModules.GemboardConfig = configModule;
+  checkPermissionSpy.mockResolvedValue(true);
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
@@ -708,6 +797,12 @@ test('saves the Gemini API key through the native bridge', async () => {
 
   expect(configModule.saveApiKey).toHaveBeenCalledWith('gemini-token');
   expect(findByTestID(tree!, 'api-key-status-label')).toBeTruthy();
+  expect(findByTestID(tree!, 'session-status-label').props.children).toBe(
+    'Gemini гатовы',
+  );
+  expect(
+    StyleSheet.flatten(findByTestID(tree!, 'session-status-dot').props.style),
+  ).toEqual(expect.objectContaining({backgroundColor: '#3f8f59'}));
   expect(mockTrackEvent).toHaveBeenCalledWith('api_key_save_attempt', {
     platform: 'android',
     source: 'single_page',
@@ -716,6 +811,56 @@ test('saves the Gemini API key through the native bridge', async () => {
     platform: 'android',
     result: 'success',
   });
+});
+
+test('requests Android microphone permission from onboarding on first open when missing', async () => {
+  Platform.OS = 'android';
+  checkPermissionSpy.mockResolvedValue(false);
+  requestPermissionSpy.mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
+
+  await ReactTestRenderer.act(async () => {
+    ReactTestRenderer.create(<App />);
+    await flushAsyncWork();
+  });
+
+  expect(checkPermissionSpy).toHaveBeenCalledWith(
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+  );
+  expect(requestPermissionSpy).toHaveBeenCalledWith(
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+    expect.objectContaining({
+      title: expect.any(String),
+      message: expect.any(String),
+    }),
+  );
+});
+
+test('shows Android microphone setup state and exposes a permission action in onboarding', async () => {
+  Platform.OS = 'android';
+  configModule.getStatus.mockResolvedValueOnce({
+    hasApiKey: true,
+    platformMode: 'android-ime',
+  });
+  checkPermissionSpy.mockResolvedValue(false);
+  requestPermissionSpy.mockResolvedValue(PermissionsAndroid.RESULTS.DENIED);
+
+  let tree: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(async () => {
+    tree = ReactTestRenderer.create(<App />);
+    await flushAsyncWork();
+  });
+
+  expect(findByTestID(tree!, 'android-microphone-help-button')).toBeTruthy();
+  expect(findByTestID(tree!, 'session-status-label').props.children).toBe(
+    'Патрэбны доступ да мікрафона',
+  );
+
+  await ReactTestRenderer.act(async () => {
+    await findByTestID(tree!, 'android-microphone-help-button').props.onPress();
+  });
+
+  expect(requestPermissionSpy).toHaveBeenCalled();
 });
 
 test('keeps the Gemini setup card visible when the API key is already saved', async () => {
@@ -972,6 +1117,9 @@ test('refreshes the saved iOS state when native bridges appear after the first r
 
     expect(findByTestID(tree!, 'api-key-status-label')).toBeTruthy();
     expect(findByTestID(tree!, 'session-status-label')).toBeTruthy();
+    expect(findByTestID(tree!, 'session-status-label').props.children).toBe(
+      'Кампаньён неактыўны',
+    );
 
     NativeModules.PlyńConfig = {
       ...configModule,
@@ -993,6 +1141,9 @@ test('refreshes the saved iOS state when native bridges appear after the first r
 
     expect(findByTestID(tree!, 'api-key-status-label')).toBeTruthy();
     expect(findByTestID(tree!, 'session-status-label')).toBeTruthy();
+    expect(findByTestID(tree!, 'session-status-label').props.children).toBe(
+      'Кампаньён актыўны',
+    );
   } finally {
     if (tree) {
       await ReactTestRenderer.act(async () => {

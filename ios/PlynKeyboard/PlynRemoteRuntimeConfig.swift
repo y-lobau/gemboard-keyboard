@@ -19,7 +19,9 @@ enum PlyńRemoteRuntimeConfig {
         return
       }
 
-      let model = remoteConfig.configValue(forKey: modelKey).stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+      let model = PlynSharedStore.normalizeGeminiModel(
+        remoteConfig.configValue(forKey: modelKey).stringValue
+      )
       let systemPrompt = remoteConfig.configValue(forKey: systemPromptKey).stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
       let keyboardCommandTimeout = positiveTimeout(
         remoteConfig.configValue(forKey: keyboardCommandTimeoutKey).stringValue

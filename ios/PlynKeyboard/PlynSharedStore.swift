@@ -34,11 +34,14 @@ enum PlynSharedStore {
   private static let sessionActiveKey = "ios_session_active"
   private static let keyboardVisibleKey = "ios_keyboard_visible"
   private static let sessionHeartbeatUpdatedAtKey = "ios_session_heartbeat_updated_at"
+  private static let sessionRecoveryAttemptUpdatedAtKey = "ios_session_recovery_attempt_updated_at"
   private static let keyboardCommandKey = "ios_keyboard_command"
   private static let keyboardCommandUpdatedAtKey = "ios_keyboard_command_updated_at"
   private static let keyboardStatusKey = "ios_keyboard_status"
   private static let keyboardStatusUpdatedAtKey = "ios_keyboard_status_updated_at"
   private static let keyboardLaunchDebugKey = "ios_keyboard_launch_debug"
+  private static let keyboardDebugLogKey = "ios_keyboard_debug_log"
+  private static let companionDebugLogKey = "ios_companion_debug_log"
   private static let tokenInputKey = "gemini_total_input_tokens"
   private static let tokenCachedInputKey = "gemini_total_cached_input_tokens"
   private static let tokenOutputKey = "gemini_total_output_tokens"
@@ -333,8 +336,12 @@ enum PlynSharedStore {
     }
   }
 
+  private static var appGroupDefaults: UserDefaults? {
+    UserDefaults(suiteName: appGroupIdentifier)
+  }
+
   private static var defaults: UserDefaults {
-    UserDefaults(suiteName: appGroupIdentifier) ?? .standard
+    appGroupDefaults ?? .standard
   }
 
   private static func log(_ message: String) {
@@ -342,13 +349,17 @@ enum PlynSharedStore {
   }
 
   static func geminiModel() -> String? {
-    let storedModel = defaults.string(forKey: geminiModelKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let storedModel = normalizeGeminiModel(defaults.string(forKey: geminiModelKey))
     return storedModel.isEmpty ? nil : storedModel
   }
 
   static func saveGeminiModel(_ model: String) {
-    defaults.set(model.trimmingCharacters(in: .whitespacesAndNewlines), forKey: geminiModelKey)
+    defaults.set(normalizeGeminiModel(model), forKey: geminiModelKey)
     defaults.synchronize()
+  }
+
+  static func normalizeGeminiModel(_ rawModel: String?) -> String {
+    rawModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
   }
 
   static func geminiSystemPrompt() -> String? {
@@ -494,8 +505,18 @@ enum PlynSharedStore {
     defaults.synchronize()
   }
 
+  static func markSessionRecoveryAttempt() {
+    defaults.set(Date().timeIntervalSince1970, forKey: sessionRecoveryAttemptUpdatedAtKey)
+    defaults.synchronize()
+    postStateNotification()
+  }
+
   static func sessionHeartbeatTimestamp() -> Date? {
     date(forKey: sessionHeartbeatUpdatedAtKey)
+  }
+
+  static func sessionRecoveryAttemptTimestamp() -> Date? {
+    date(forKey: sessionRecoveryAttemptUpdatedAtKey)
   }
 
   static func saveKeyboardLaunchDebug(_ message: String) {
@@ -505,8 +526,58 @@ enum PlynSharedStore {
     }
 
     let timestamp = ISO8601DateFormatter().string(from: Date())
-    defaults.set("[\(timestamp)] \(trimmedMessage)", forKey: keyboardLaunchDebugKey)
+    let entry = "[\(timestamp)] \(trimmedMessage)"
+    defaults.set(entry, forKey: keyboardLaunchDebugKey)
+    appendDebugLog(entry, forKey: keyboardDebugLogKey)
     defaults.synchronize()
+  }
+
+  static func keyboardDebugLog() -> String {
+    defaults.string(forKey: keyboardDebugLogKey) ?? ""
+  }
+
+  static func appendCompanionDebugLog(_ message: String) {
+    let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedMessage.isEmpty else {
+      return
+    }
+
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let entry = "[\(timestamp)] \(trimmedMessage)"
+    appendDebugLog(entry, forKey: companionDebugLogKey)
+    defaults.synchronize()
+  }
+
+  static func companionDebugLog() -> String {
+    defaults.string(forKey: companionDebugLogKey) ?? ""
+  }
+
+  static func clearDebugSnapshot() {
+    defaults.removeObject(forKey: keyboardLaunchDebugKey)
+    defaults.removeObject(forKey: keyboardDebugLogKey)
+    defaults.removeObject(forKey: companionDebugLogKey)
+    defaults.removeObject(forKey: sessionRecoveryAttemptUpdatedAtKey)
+    defaults.removeObject(forKey: sessionHeartbeatUpdatedAtKey)
+    defaults.synchronize()
+  }
+
+  static func debugSnapshot() -> [String: Any] {
+    [
+      "usesAppGroupDefaults": appGroupDefaults != nil,
+      "appGroupIdentifier": appGroupIdentifier,
+      "hasApiKey": hasApiKey(),
+      "keyboardVisible": isKeyboardVisible(),
+      "keyboardStatus": keyboardStatus().rawValue,
+      "keyboardCommand": keyboardCommand().rawValue,
+      "keyboardStatusUpdatedAt": bridgeValue(dateTimestamp(forKey: keyboardStatusUpdatedAtKey)),
+      "keyboardCommandUpdatedAt": bridgeValue(dateTimestamp(forKey: keyboardCommandUpdatedAtKey)),
+      "keyboardLaunchDebug": defaults.string(forKey: keyboardLaunchDebugKey) ?? "",
+      "keyboardDebugLog": keyboardDebugLog(),
+      "sessionActive": isSessionActive(),
+      "sessionHeartbeatUpdatedAt": bridgeValue(dateTimestamp(forKey: sessionHeartbeatUpdatedAtKey)),
+      "sessionRecoveryAttemptUpdatedAt": bridgeValue(dateTimestamp(forKey: sessionRecoveryAttemptUpdatedAtKey)),
+      "companionDebugLog": companionDebugLog(),
+    ]
   }
 
   static func keyboardCommand() -> KeyboardCommand {
@@ -945,6 +1016,26 @@ enum PlynSharedStore {
     }
 
     return timeout
+  }
+
+  private static func appendDebugLog(_ entry: String, forKey key: String) {
+    let existingEntries = (defaults.string(forKey: key) ?? "")
+      .split(separator: "\n")
+      .map(String.init)
+    let retainedEntries = Array((existingEntries + [entry]).suffix(60))
+    defaults.set(retainedEntries.joined(separator: "\n"), forKey: key)
+  }
+
+  private static func dateTimestamp(forKey key: String) -> Double? {
+    guard let timestamp = defaults.object(forKey: key) as? NSNumber else {
+      return nil
+    }
+
+    return timestamp.doubleValue
+  }
+
+  private static func bridgeValue(_ value: Double?) -> Any {
+    value ?? NSNull()
   }
 }
 

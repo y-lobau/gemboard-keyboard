@@ -92,6 +92,17 @@ final class PlyńAppConfig: NSObject {
     PlynSharedStore.resetTokenUsageSummary()
     resolve(nil)
   }
+
+  @objc
+  func getDebugSnapshot(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    resolve(PlynSharedStore.debugSnapshot())
+  }
+
+  @objc
+  func clearDebugSnapshot(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    PlynSharedStore.clearDebugSnapshot()
+    resolve(nil)
+  }
 }
 
 @objc(PlyńConfig)
@@ -141,5 +152,15 @@ final class PlyńConfig: NSObject {
   @objc
   func resetTokenUsageSummary(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
     appConfig.resetTokenUsageSummary(resolve, rejecter: reject)
+  }
+
+  @objc
+  func getDebugSnapshot(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    appConfig.getDebugSnapshot(resolve, rejecter: reject)
+  }
+
+  @objc
+  func clearDebugSnapshot(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    appConfig.clearDebugSnapshot(resolve, rejecter: reject)
   }
 }

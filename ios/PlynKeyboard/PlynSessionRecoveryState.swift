@@ -7,14 +7,25 @@ enum PlynCompanionSessionDemandAction: String {
 }
 
 enum PlynCompanionSessionDemand {
+  private static let recoveryLaunchWindow: TimeInterval = 6.0
+
   static func actionForKeyboardVisibility(
     isKeyboardVisible: Bool,
     isAppBackgrounded: Bool,
     isSessionActive: Bool,
-    hasAPIKey: Bool
+    hasAPIKey: Bool,
+    recoveryAttemptTimestamp: Date? = nil,
+    now: Date = Date()
   ) -> PlynCompanionSessionDemandAction {
     if isKeyboardVisible {
       return hasAPIKey && !isSessionActive ? .start : .none
+    }
+
+    if let recoveryAttemptTimestamp {
+      let recoveryAge = now.timeIntervalSince(recoveryAttemptTimestamp)
+      if recoveryAge >= 0 && recoveryAge <= recoveryLaunchWindow {
+        return .none
+      }
     }
 
     return isAppBackgrounded && isSessionActive ? .stop : .none

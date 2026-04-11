@@ -37,6 +37,23 @@ final class PlynCompanionSessionLivenessTests: XCTestCase {
     )
   }
 
+  func testKeepsSessionRunningDuringRecentRecoveryLaunchWhileKeyboardIsHidden() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let recoveryAttemptTimestamp = now.addingTimeInterval(-1)
+
+    XCTAssertEqual(
+      PlynCompanionSessionDemand.actionForKeyboardVisibility(
+        isKeyboardVisible: false,
+        isAppBackgrounded: true,
+        isSessionActive: true,
+        hasAPIKey: true,
+        recoveryAttemptTimestamp: recoveryAttemptTimestamp,
+        now: now
+      ),
+      .none
+    )
+  }
+
   func testKeepsSessionRunningWhenKeyboardHidesButCompanionAppIsForegrounded() {
     XCTAssertEqual(
       PlynCompanionSessionDemand.actionForKeyboardVisibility(
@@ -57,6 +74,48 @@ final class PlynCompanionSessionLivenessTests: XCTestCase {
       PlynCompanionSessionLiveness.isResponsive(
         isSessionActive: true,
         heartbeatTimestamp: heartbeatTimestamp,
+        now: now
+      )
+    )
+  }
+
+  func testTreatsRecentRecoveryAttemptAsResponsiveWhileSessionIsStillStarting() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let recoveryAttemptTimestamp = now.addingTimeInterval(-1.5)
+
+    XCTAssertTrue(
+      PlynCompanionSessionLiveness.isResponsive(
+        isSessionActive: false,
+        heartbeatTimestamp: nil,
+        recoveryAttemptTimestamp: recoveryAttemptTimestamp,
+        now: now
+      )
+    )
+  }
+
+  func testTreatsRecoveryAttemptAsResponsiveForExtendedRecoveryWindow() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let recoveryAttemptTimestamp = now.addingTimeInterval(-(PlynCompanionSessionLiveness.recoveryAttemptWindow - 0.5))
+
+    XCTAssertTrue(
+      PlynCompanionSessionLiveness.isResponsive(
+        isSessionActive: false,
+        heartbeatTimestamp: nil,
+        recoveryAttemptTimestamp: recoveryAttemptTimestamp,
+        now: now
+      )
+    )
+  }
+
+  func testDoesNotTreatExpiredRecoveryAttemptAsResponsive() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let recoveryAttemptTimestamp = now.addingTimeInterval(-(PlynCompanionSessionLiveness.recoveryAttemptWindow + 0.5))
+
+    XCTAssertFalse(
+      PlynCompanionSessionLiveness.isResponsive(
+        isSessionActive: false,
+        heartbeatTimestamp: nil,
+        recoveryAttemptTimestamp: recoveryAttemptTimestamp,
         now: now
       )
     )

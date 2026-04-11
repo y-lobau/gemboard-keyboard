@@ -10,7 +10,9 @@ import {
   AppState,
   Image,
   Linking,
+  Modal,
   NativeModules,
+  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -57,6 +59,25 @@ type ConfigModule = {
   clearLatestTranscript: () => Promise<void>;
   resetTokenUsageSummary: () => Promise<void>;
   getTokenUsageSummary: () => Promise<TokenUsageSummary>;
+  getDebugSnapshot?: () => Promise<DebugSnapshot>;
+  clearDebugSnapshot?: () => Promise<void>;
+};
+
+type DebugSnapshot = {
+  usesAppGroupDefaults: boolean;
+  appGroupIdentifier: string;
+  hasApiKey: boolean;
+  keyboardVisible: boolean;
+  keyboardStatus: string;
+  keyboardCommand: string;
+  keyboardStatusUpdatedAt?: number | null;
+  keyboardCommandUpdatedAt?: number | null;
+  keyboardLaunchDebug: string;
+  keyboardDebugLog: string;
+  sessionActive: boolean;
+  sessionHeartbeatUpdatedAt?: number | null;
+  sessionRecoveryAttemptUpdatedAt?: number | null;
+  companionDebugLog: string;
 };
 
 type ModalityTokenBreakdown = {
@@ -150,6 +171,8 @@ const fallbackConfigModule: ConfigModule = {
   clearLatestTranscript: async () => undefined,
   resetTokenUsageSummary: async () => undefined,
   getTokenUsageSummary: async () => emptyTokenUsageSummary,
+  getDebugSnapshot: async () => emptyDebugSnapshot,
+  clearDebugSnapshot: async () => undefined,
 };
 
 const fallbackSessionModule: SessionModule = {
@@ -159,6 +182,7 @@ const fallbackSessionModule: SessionModule = {
 };
 
 const isTestEnvironment = Boolean(process.env.JEST_WORKER_ID);
+const androidPermissionPromptDelayMs = 250;
 const emptyModalityBreakdown: ModalityTokenBreakdown = {
   text: 0,
   audio: 0,
@@ -188,6 +212,22 @@ const emptyTokenUsageSummary: TokenUsageSummary = {
 };
 const iosSessionRefreshIntervalMs = 5000;
 const oneMillionTokens = 1_000_000;
+const emptyDebugSnapshot: DebugSnapshot = {
+  usesAppGroupDefaults: false,
+  appGroupIdentifier: '',
+  hasApiKey: false,
+  keyboardVisible: false,
+  keyboardStatus: 'unknown',
+  keyboardCommand: 'unknown',
+  keyboardStatusUpdatedAt: null,
+  keyboardCommandUpdatedAt: null,
+  keyboardLaunchDebug: '',
+  keyboardDebugLog: '',
+  sessionActive: false,
+  sessionHeartbeatUpdatedAt: null,
+  sessionRecoveryAttemptUpdatedAt: null,
+  companionDebugLog: '',
+};
 
 function shouldRunBootstrapRetries() {
   return (
@@ -200,7 +240,12 @@ function shouldRunBootstrapRetries() {
 }
 
 function getConfigNativeModule() {
-  return NativeModules.PlyńAppConfig ?? NativeModules.PlyńConfig ?? null;
+  return (
+    NativeModules.PlyńAppConfig ??
+    NativeModules.PlyńConfig ??
+    NativeModules.GemboardConfig ??
+    null
+  );
 }
 
 function getSessionNativeModule() {
@@ -283,6 +328,22 @@ function createConfigModule(fallbackStatus: NativeStatus): ConfigModule {
 
       return fallbackConfigModule.getTokenUsageSummary();
     },
+    getDebugSnapshot: async () => {
+      const nativeModule = getConfigNativeModule();
+
+      if (nativeModule?.getDebugSnapshot) {
+        return normalizeDebugSnapshot(await nativeModule.getDebugSnapshot());
+      }
+
+      return fallbackConfigModule.getDebugSnapshot?.() ?? emptyDebugSnapshot;
+    },
+    clearDebugSnapshot: async () => {
+      const nativeModule = getConfigNativeModule();
+
+      if (nativeModule?.clearDebugSnapshot) {
+        return nativeModule.clearDebugSnapshot();
+      }
+    },
   };
 }
 
@@ -346,6 +407,9 @@ function App({
   const [onboardingExpanded, setOnboardingExpanded] = useState(true);
   const [tokenSummaryExpanded, setTokenSummaryExpanded] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(initialHasApiKey);
+  const [hasMicrophonePermission, setHasMicrophonePermission] = useState(
+    Platform.OS !== 'android',
+  );
   const [_platformMode, setPlatformMode] =
     useState<NativeStatus['platformMode']>(initialPlatformMode);
   const [saving, setSaving] = useState(false);
@@ -354,10 +418,63 @@ function App({
   const [tokenUsageSummary, setTokenUsageSummary] = useState<TokenUsageSummary>(
     emptyTokenUsageSummary,
   );
+  const [debugPanelVisible, setDebugPanelVisible] = useState(false);
+  const [debugSnapshot, setDebugSnapshot] =
+    useState<DebugSnapshot>(emptyDebugSnapshot);
+  const [debugLoading, setDebugLoading] = useState(false);
   const [transcriptionCostRates, setTranscriptionCostRates] =
     useState<TranscriptionCostRates>(emptyTranscriptionCostRates);
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('main');
+  const [pendingAndroidPermissionPrompt, setPendingAndroidPermissionPrompt] =
+    useState(false);
   const sectionStateHydratedRef = useRef(false);
+  const androidPermissionPromptedRef = useRef(false);
+  const readyForKeyboardUse =
+    Platform.OS === 'ios'
+      ? sessionActive
+      : hasApiKey && hasMicrophonePermission;
+
+  const syncAndroidMicrophonePermission = useCallback(async () => {
+    if (Platform.OS !== 'android') {
+      return true;
+    }
+
+    const granted = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+    );
+    setHasMicrophonePermission(current =>
+      current === granted ? current : granted,
+    );
+    return granted;
+  }, []);
+
+  const requestAndroidMicrophonePermission = useCallback(async () => {
+    if (Platform.OS !== 'android') {
+      return true;
+    }
+
+    let result = PermissionsAndroid.RESULTS.DENIED;
+
+    try {
+      result = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        {
+          title: 'Доступ да мікрафона для Plyń',
+          message:
+            'Plyń патрэбны доступ да мікрафона, каб клавіятура магла запісваць і расшыфроўваць маўленне па-беларуску.',
+          buttonPositive: 'Дазволіць',
+          buttonNegative: 'Не цяпер',
+        },
+      );
+    } catch {
+      result = PermissionsAndroid.RESULTS.DENIED;
+    }
+    const granted = result === PermissionsAndroid.RESULTS.GRANTED;
+    setHasMicrophonePermission(current =>
+      current === granted ? current : granted,
+    );
+    return granted;
+  }, []);
 
   const refreshTokenUsageSummary = useCallback(async () => {
     try {
@@ -382,6 +499,39 @@ function App({
     }
   }, [configModule, refreshTokenUsageSummary]);
 
+  const refreshDebugSnapshot = useCallback(async () => {
+    if (!configModule.getDebugSnapshot) {
+      return;
+    }
+
+    setDebugLoading(true);
+
+    try {
+      const nextSnapshot = await configModule.getDebugSnapshot();
+      setDebugSnapshot(nextSnapshot);
+    } finally {
+      setDebugLoading(false);
+    }
+  }, [configModule]);
+
+  const handleClearDebugSnapshot = useCallback(async () => {
+    if (!configModule.clearDebugSnapshot) {
+      return;
+    }
+
+    setDebugLoading(true);
+
+    try {
+      await configModule.clearDebugSnapshot();
+      const clearedSnapshot = configModule.getDebugSnapshot
+        ? await configModule.getDebugSnapshot()
+        : emptyDebugSnapshot;
+      setDebugSnapshot(clearedSnapshot);
+    } finally {
+      setDebugLoading(false);
+    }
+  }, [configModule]);
+
   useEffect(() => {
     let active = true;
     const retryTimers: ReturnType<typeof setTimeout>[] = [];
@@ -389,6 +539,10 @@ function App({
     const loadStatus = async () => {
       try {
         const status = await configModule.getStatus();
+        const resolvedHasMicrophonePermission =
+          Platform.OS === 'ios'
+            ? true
+            : await syncAndroidMicrophonePermission();
         const hasConfigModule = Boolean(getConfigNativeModule()?.getStatus);
         const hasSessionModule = Boolean(getSessionNativeModule()?.getStatus);
         const resolvedHasApiKey = hasConfigModule
@@ -421,6 +575,7 @@ function App({
         setStatusMessage(
           buildStatusMessage({
             hasApiKey: resolvedHasApiKey,
+            hasMicrophonePermission: resolvedHasMicrophonePermission,
             sessionActive: currentSession,
           }),
         );
@@ -460,6 +615,7 @@ function App({
     initialSessionActive,
     refreshTokenUsageSummary,
     sessionModule,
+    syncAndroidMicrophonePermission,
   ]);
 
   useEffect(() => {
@@ -478,6 +634,7 @@ function App({
         }
 
         const status = await configModule.getStatus();
+        await syncAndroidMicrophonePermission();
 
         if (cancelled) {
           return;
@@ -486,6 +643,11 @@ function App({
         setHasApiKey(current =>
           current === status.hasApiKey ? current : status.hasApiKey,
         );
+        if (typeof status.sessionActive === 'boolean') {
+          setSessionActive(current =>
+            current === status.sessionActive ? current : status.sessionActive,
+          );
+        }
         await refreshTokenUsageSummary();
       } catch {
         // Keep the last known UI state when a background refresh fails.
@@ -504,7 +666,53 @@ function App({
       cancelled = true;
       subscription.remove();
     };
-  }, [configModule, refreshTokenUsageSummary]);
+  }, [configModule, refreshTokenUsageSummary, syncAndroidMicrophonePermission]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    let active = true;
+
+    const ensureAndroidPermissionFromOnboarding = async () => {
+      const granted = await syncAndroidMicrophonePermission();
+
+      if (!active || granted || androidPermissionPromptedRef.current) {
+        return;
+      }
+
+      androidPermissionPromptedRef.current = true;
+      setPendingAndroidPermissionPrompt(true);
+    };
+
+    void ensureAndroidPermissionFromOnboarding();
+
+    return () => {
+      active = false;
+    };
+  }, [requestAndroidMicrophonePermission, syncAndroidMicrophonePermission]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !pendingAndroidPermissionPrompt) {
+      return;
+    }
+
+    if (isTestEnvironment) {
+      void requestAndroidMicrophonePermission();
+      setPendingAndroidPermissionPrompt(false);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      void requestAndroidMicrophonePermission();
+      setPendingAndroidPermissionPrompt(false);
+    }, androidPermissionPromptDelayMs);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [pendingAndroidPermissionPrompt, requestAndroidMicrophonePermission]);
 
   useEffect(() => {
     void initializeAnalytics();
@@ -576,6 +784,30 @@ function App({
   }, [configModule, onboardingExpanded, setupExpanded, tokenSummaryExpanded]);
 
   useEffect(() => {
+    if (!debugPanelVisible) {
+      return;
+    }
+
+    void refreshDebugSnapshot();
+  }, [debugPanelVisible, refreshDebugSnapshot]);
+
+  useEffect(() => {
+    if (!debugPanelVisible || isTestEnvironment) {
+      return;
+    }
+
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        void refreshDebugSnapshot();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [debugPanelVisible, refreshDebugSnapshot]);
+
+  useEffect(() => {
     if (Platform.OS !== 'ios' || isTestEnvironment) {
       return;
     }
@@ -627,7 +859,7 @@ function App({
     let active = true;
 
     const handleUrl = async (url: string | null) => {
-      if (!url || Platform.OS !== 'ios') {
+      if (!url) {
         return;
       }
 
@@ -642,6 +874,35 @@ function App({
       }
 
       if (!isSessionUrl(url)) {
+        return;
+      }
+
+      if (Platform.OS === 'android') {
+        setSetupExpanded(true);
+        setOnboardingExpanded(true);
+
+        if (!hasApiKey) {
+          setStatusKind('error');
+          setStatusMessage(
+            'Спачатку захавайце API-ключ Gemini ў праграме Plyń.',
+          );
+          return;
+        }
+
+        const granted = await syncAndroidMicrophonePermission();
+
+        if (!granted) {
+          androidPermissionPromptedRef.current = false;
+          setPendingAndroidPermissionPrompt(true);
+          setStatusKind('error');
+          setStatusMessage(
+            'Каб карыстацца клавіятурай Plyń, дайце доступ да мікрафона.',
+          );
+          return;
+        }
+
+        setStatusKind('success');
+        setStatusMessage('Клавіятура Plyń гатовая да дыктоўкі.');
         return;
       }
 
@@ -699,7 +960,12 @@ function App({
       active = false;
       subscription.remove();
     };
-  }, [sessionModule]);
+  }, [
+    hasApiKey,
+    requestAndroidMicrophonePermission,
+    sessionModule,
+    syncAndroidMicrophonePermission,
+  ]);
 
   useEffect(() => {
     setStatusMessage(current => {
@@ -714,10 +980,11 @@ function App({
       setStatusKind('neutral');
       return buildStatusMessage({
         hasApiKey,
+        hasMicrophonePermission,
         sessionActive,
       });
     });
-  }, [hasApiKey, sessionActive, statusKind]);
+  }, [hasApiKey, hasMicrophonePermission, sessionActive, statusKind]);
 
   const handleSaveKey = async () => {
     if (!apiKey.trim()) {
@@ -794,6 +1061,18 @@ function App({
     Alert.alert(
       'Уключыць Plyń на Android',
       'Пасля захавання API-ключа адкрыйце Налады Android > Сістэма > Клавіятура > Экранная клавіятура і ўключыце Plyń. Потым выберыце яе праз пераключальнік клавіятур.',
+    );
+  };
+
+  const handleAndroidMicrophonePermission = async () => {
+    const granted = await requestAndroidMicrophonePermission();
+    setStatusKind(granted ? 'success' : 'error');
+    setStatusMessage(
+      granted
+        ? hasApiKey
+          ? 'Доступ да мікрафона нададзены. Клавіятура Plyń гатовая.'
+          : 'Доступ да мікрафона нададзены. Цяпер дадайце API-ключ Gemini.'
+        : 'Каб карыстацца клавіятурай Plyń, дайце доступ да мікрафона.',
     );
   };
 
@@ -891,24 +1170,46 @@ function App({
         contentInsetAdjustmentBehavior="always"
       >
         <View style={styles.onboardingCard}>
-          <Pressable
-            testID="onboarding-toggle"
-            accessibilityLabel={
-              onboardingExpanded
-                ? 'Схаваць раздзел Як гэта працуе'
-                : 'Паказаць раздзел Як гэта працуе'
-            }
-            style={({ pressed }) => [
-              styles.tokenSummaryHeader,
-              pressed && styles.inlineTogglePressed,
-            ]}
-            onPress={() => setOnboardingExpanded(current => !current)}
-          >
-            <Text style={styles.sectionTitle}>Як гэта працуе</Text>
-            <Text style={styles.tokenSummaryChevron}>
-              {onboardingExpanded ? '↑' : '↓'}
-            </Text>
-          </Pressable>
+          <View style={styles.tokenSummaryHeader}>
+            <View style={styles.debugUnlockTrigger}>
+              <Text style={styles.sectionTitle}>Як гэта працуе</Text>
+              {Platform.OS === 'ios' ? (
+                <Pressable
+                  testID="debug-open-button"
+                  accessibilityLabel="Адкрыць debug панэль"
+                  style={({pressed}) => [
+                    styles.inlineToggle,
+                    styles.debugOpenButton,
+                    pressed && styles.inlineTogglePressed,
+                  ]}
+                  onPress={() => {
+                    setDebugPanelVisible(true);
+                  }}
+                >
+                  <Text style={styles.inlineToggleLabel}>Debug</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <Pressable
+              testID="onboarding-toggle"
+              accessibilityLabel={
+                onboardingExpanded
+                  ? 'Схаваць раздзел Як гэта працуе'
+                  : 'Паказаць раздзел Як гэта працуе'
+              }
+              style={({pressed}) => [
+                styles.sectionChevronButton,
+                pressed && styles.inlineTogglePressed,
+              ]}
+              onPress={() => {
+                setOnboardingExpanded(current => !current);
+              }}
+            >
+              <Text style={styles.tokenSummaryChevron}>
+                {onboardingExpanded ? '↑' : '↓'}
+              </Text>
+            </Pressable>
+          </View>
           {onboardingExpanded ? (
             <View testID="onboarding-content" style={styles.expandableContent}>
               <Text style={styles.infoLead}>
@@ -920,19 +1221,38 @@ function App({
               </Text>
 
               {Platform.OS === 'android' ? (
-                <Pressable
-                  testID="android-enable-help-button"
-                  accessibilityLabel="Уключыць клавіятуру Android"
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    pressed && styles.secondaryButtonPressed,
-                  ]}
-                  onPress={handleAndroidEnableHint}
-                >
-                  <Text style={styles.secondaryButtonLabel}>
-                    Як уключыць клавіятуру Android
-                  </Text>
-                </Pressable>
+                <>
+                  <Pressable
+                    testID="android-enable-help-button"
+                    accessibilityLabel="Уключыць клавіятуру Android"
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      pressed && styles.secondaryButtonPressed,
+                    ]}
+                    onPress={handleAndroidEnableHint}
+                  >
+                    <Text style={styles.secondaryButtonLabel}>
+                      Як уключыць клавіятуру Android
+                    </Text>
+                  </Pressable>
+                  {!hasMicrophonePermission ? (
+                    <Pressable
+                      testID="android-microphone-help-button"
+                      accessibilityLabel="Даць доступ да мікрафона"
+                      style={({ pressed }) => [
+                        styles.secondaryButton,
+                        pressed && styles.secondaryButtonPressed,
+                      ]}
+                      onPress={() => {
+                        void handleAndroidMicrophonePermission();
+                      }}
+                    >
+                      <Text style={styles.secondaryButtonLabel}>
+                        Даць доступ да мікрафона
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </>
               ) : null}
 
               {Platform.OS === 'ios' ? (
@@ -1023,19 +1343,21 @@ function App({
                   testID="session-status-dot"
                   style={[
                     styles.statusDot,
-                    sessionActive
+                    readyForKeyboardUse
                       ? styles.statusDotActive
                       : styles.statusDotInactive,
                   ]}
                 />
                 <Text testID="session-status-label" style={styles.statusLabel}>
                   {Platform.OS === 'ios'
-                    ? sessionActive
+                    ? readyForKeyboardUse
                       ? 'Кампаньён актыўны'
                       : 'Кампаньён неактыўны'
-                    : hasApiKey
-                    ? 'Gemini гатовы'
-                    : 'Патрэбны ключ Gemini'}
+                    : !hasApiKey
+                    ? 'Патрэбны ключ Gemini'
+                    : !hasMicrophonePermission
+                    ? 'Патрэбны доступ да мікрафона'
+                    : 'Gemini гатовы'}
                 </Text>
               </View>
 
@@ -1180,7 +1502,123 @@ function App({
             </View>
           ) : null}
         </View>
+
       </ScrollView>
+      {Platform.OS === 'ios' ? (
+        <Modal
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          transparent
+          visible={debugPanelVisible}
+          onRequestClose={() => setDebugPanelVisible(false)}
+        >
+          <View style={styles.debugOverlay}>
+            <Pressable
+              testID="debug-panel-backdrop"
+              style={styles.debugBackdrop}
+              onPress={() => setDebugPanelVisible(false)}
+            />
+            <View testID="debug-panel" style={styles.debugModalCard}>
+              <View style={styles.tokenSummaryHeader}>
+                <Text style={styles.sectionTitle}>Debug</Text>
+                <Pressable
+                  testID="debug-panel-close"
+                  accessibilityLabel="Схаваць debug панэль"
+                  style={({pressed}) => [
+                    styles.tokenSummaryResetButton,
+                    pressed && styles.inlineTogglePressed,
+                  ]}
+                  onPress={() => setDebugPanelVisible(false)}
+                >
+                  <Text style={styles.tokenSummaryResetButtonText}>Схаваць</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.tokenSummaryCaption}>
+                Агульны стан handoff паміж праграмай і клавіятурай.
+              </Text>
+              <ScrollView
+                style={styles.debugModalScroll}
+                contentContainerStyle={styles.debugModalContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.debugActionsRow}>
+                  <Pressable
+                    testID="debug-refresh-button"
+                    accessibilityLabel="Абнавіць debug стан"
+                    style={({pressed}) => [
+                      styles.secondaryButton,
+                      styles.debugActionButton,
+                      pressed && styles.secondaryButtonPressed,
+                      debugLoading && styles.buttonDisabled,
+                    ]}
+                    disabled={debugLoading}
+                    onPress={() => {
+                      void refreshDebugSnapshot();
+                    }}
+                  >
+                    <Text style={styles.secondaryButtonLabel}>
+                      {debugLoading ? 'Чытаю...' : 'Абнавіць'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    testID="debug-clear-button"
+                    accessibilityLabel="Ачысціць debug логі"
+                    style={({pressed}) => [
+                      styles.secondaryButton,
+                      styles.debugActionButton,
+                      pressed && styles.secondaryButtonPressed,
+                      debugLoading && styles.buttonDisabled,
+                    ]}
+                    disabled={debugLoading}
+                    onPress={() => {
+                      void handleClearDebugSnapshot();
+                    }}
+                  >
+                    <Text style={styles.secondaryButtonLabel}>Ачысціць</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.debugFactsGrid}>
+                  {renderDebugFact('App Group', debugSnapshot.appGroupIdentifier || 'n/a')}
+                  {renderDebugFact(
+                    'Shared defaults',
+                    debugSnapshot.usesAppGroupDefaults ? 'yes' : 'no',
+                  )}
+                  {renderDebugFact('Session active', debugSnapshot.sessionActive ? 'yes' : 'no')}
+                  {renderDebugFact('Keyboard visible', debugSnapshot.keyboardVisible ? 'yes' : 'no')}
+                  {renderDebugFact('Keyboard status', debugSnapshot.keyboardStatus)}
+                  {renderDebugFact('Keyboard command', debugSnapshot.keyboardCommand)}
+                  {renderDebugFact(
+                    'Recovery attempt',
+                    formatDebugTimestamp(debugSnapshot.sessionRecoveryAttemptUpdatedAt),
+                  )}
+                  {renderDebugFact(
+                    'Heartbeat',
+                    formatDebugTimestamp(debugSnapshot.sessionHeartbeatUpdatedAt),
+                  )}
+                </View>
+                <View style={styles.debugLogSection}>
+                  <Text style={styles.tokenSummarySectionTitle}>Keyboard latest</Text>
+                  <Text testID="debug-keyboard-latest" style={styles.debugLogText}>
+                    {debugSnapshot.keyboardLaunchDebug || 'No keyboard event yet.'}
+                  </Text>
+                </View>
+                <View style={styles.debugLogSection}>
+                  <Text style={styles.tokenSummarySectionTitle}>Keyboard timeline</Text>
+                  <Text testID="debug-keyboard-log" style={styles.debugLogText}>
+                    {debugSnapshot.keyboardDebugLog || 'No keyboard log yet.'}
+                  </Text>
+                </View>
+                <View style={styles.debugLogSection}>
+                  <Text style={styles.tokenSummarySectionTitle}>Companion timeline</Text>
+                  <Text testID="debug-companion-log" style={styles.debugLogText}>
+                    {debugSnapshot.companionDebugLog || 'No companion log yet.'}
+                  </Text>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -1251,6 +1689,15 @@ function renderTokenSummarySection({
       {renderTokenSummaryRows(
         getOutputTokenSummaryRows(summary, transcriptionCostRates),
       )}
+    </View>
+  );
+}
+
+function renderDebugFact(label: string, value: string) {
+  return (
+    <View key={label} style={styles.debugFactCard}>
+      <Text style={styles.debugFactLabel}>{label}</Text>
+      <Text style={styles.debugFactValue}>{value}</Text>
     </View>
   );
 }
@@ -1399,6 +1846,36 @@ function normalizeTokenUsageSummary(
       'text',
     ),
   };
+}
+
+function normalizeDebugSnapshot(
+  value?: Partial<DebugSnapshot> | null,
+): DebugSnapshot {
+  return {
+    usesAppGroupDefaults: value?.usesAppGroupDefaults ?? false,
+    appGroupIdentifier: value?.appGroupIdentifier ?? '',
+    hasApiKey: value?.hasApiKey ?? false,
+    keyboardVisible: value?.keyboardVisible ?? false,
+    keyboardStatus: value?.keyboardStatus ?? 'unknown',
+    keyboardCommand: value?.keyboardCommand ?? 'unknown',
+    keyboardStatusUpdatedAt: value?.keyboardStatusUpdatedAt ?? null,
+    keyboardCommandUpdatedAt: value?.keyboardCommandUpdatedAt ?? null,
+    keyboardLaunchDebug: value?.keyboardLaunchDebug ?? '',
+    keyboardDebugLog: value?.keyboardDebugLog ?? '',
+    sessionActive: value?.sessionActive ?? false,
+    sessionHeartbeatUpdatedAt: value?.sessionHeartbeatUpdatedAt ?? null,
+    sessionRecoveryAttemptUpdatedAt:
+      value?.sessionRecoveryAttemptUpdatedAt ?? null,
+    companionDebugLog: value?.companionDebugLog ?? '',
+  };
+}
+
+function formatDebugTimestamp(value?: number | null) {
+  if (!value) {
+    return 'none';
+  }
+
+  return new Date(value * 1000).toLocaleString();
 }
 
 function areModalityBreakdownsEqual(
@@ -1571,13 +2048,19 @@ function isCrashlyticsTestUrl(url: string) {
 
 function buildStatusMessage({
   hasApiKey,
+  hasMicrophonePermission,
   sessionActive,
 }: {
   hasApiKey: boolean;
+  hasMicrophonePermission: boolean;
   sessionActive: boolean;
 }) {
   if (!hasApiKey) {
     return 'Захавайце API-ключ Gemini, каб наладзіць Plyń.';
+  }
+
+  if (Platform.OS === 'android' && !hasMicrophonePermission) {
+    return 'Дайце доступ да мікрафона ў праграме Plyń, каб карыстацца клавіятурай.';
   }
 
   if (Platform.OS === 'ios') {
@@ -1787,11 +2270,107 @@ const styles = StyleSheet.create({
     borderColor: '#e7d8c0',
     gap: 10,
   },
+  debugOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  debugBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(45, 36, 30, 0.42)',
+  },
+  debugModalCard: {
+    maxHeight: '82%',
+    marginHorizontal: 14,
+    marginBottom: 14,
+    borderRadius: 28,
+    padding: 18,
+    backgroundColor: '#efe7da',
+    borderWidth: 1,
+    borderColor: '#d5c6b1',
+    gap: 12,
+    shadowColor: '#2d241e',
+    shadowOpacity: 0.18,
+    shadowOffset: {width: 0, height: 12},
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  debugModalScroll: {
+    flexGrow: 0,
+  },
+  debugModalContent: {
+    gap: 12,
+    paddingBottom: 8,
+  },
+  debugCard: {
+    borderRadius: 28,
+    padding: 18,
+    backgroundColor: '#efe7da',
+    borderWidth: 1,
+    borderColor: '#d5c6b1',
+    gap: 12,
+  },
+  debugActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  debugActionButton: {
+    flex: 1,
+  },
+  debugFactsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  debugFactCard: {
+    minWidth: '47%',
+    flexGrow: 1,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f8f1e7',
+    borderWidth: 1,
+    borderColor: '#decfba',
+    gap: 4,
+  },
+  debugFactLabel: {
+    color: '#7a695c',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  debugFactValue: {
+    color: '#2d241e',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  debugLogSection: {
+    gap: 6,
+  },
+  debugLogText: {
+    color: '#4b3e33',
+    fontSize: 12,
+    lineHeight: 18,
+  },
   tokenSummaryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
+  },
+  debugUnlockTrigger: {
+    flex: 1,
+    gap: 8,
+  },
+  debugOpenButton: {
+    alignSelf: 'flex-start',
+  },
+  sectionChevronButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
   },
   tokenSummaryTitle: {
     color: '#2d241e',

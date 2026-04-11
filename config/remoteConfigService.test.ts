@@ -40,7 +40,7 @@ beforeEach(() => {
   mockGetString.mockImplementation((key: string) => {
     switch (key) {
       case 'gemini_model':
-        return 'gemini-3.1-flash-preview';
+        return 'remote-config-model';
       case 'gemini_system_prompt':
         return 'Return only Belarusian transcript text.';
       case 'keyboard_command_timeout_seconds':
@@ -63,13 +63,31 @@ beforeEach(() => {
   });
 });
 
-test('bundled fallback runtime config uses the 3.1 flash preview model', () => {
-  expect(bundledRuntimeConfig.model).toBe('gemini-3.1-flash-preview');
+test('bundled runtime config keeps only prompt and timeout fallbacks', () => {
+  expect(bundledRuntimeConfig).toEqual({
+    systemPrompt:
+      'Transcribe supplied audio into Belarusian dictation text only. Return only the final Belarusian transcript.',
+    keyboardCommandTimeout: 2,
+    keyboardTranscriptionTimeout: 12,
+  });
 });
 
-test('persists bundled fallback runtime config when Firebase returns empty model settings', async () => {
+test('persists Firebase-provided runtime config when model is present', async () => {
+  await syncRemoteRuntimeConfig(configModule);
+
+  expect(configModule.saveRuntimeConfig).toHaveBeenCalledWith({
+    model: 'remote-config-model',
+    systemPrompt: 'Return only Belarusian transcript text.',
+    keyboardCommandTimeout: 3.5,
+    keyboardTranscriptionTimeout: 24,
+  });
+});
+
+test('does not save runtime config when Firebase omits the model', async () => {
   mockGetString.mockImplementation((key: string) => {
     switch (key) {
+      case 'gemini_system_prompt':
+        return 'Return only Belarusian transcript text.';
       case 'keyboard_command_timeout_seconds':
         return '3.5';
       case 'keyboard_transcription_timeout_seconds':
@@ -91,7 +109,7 @@ test('persists bundled fallback runtime config when Firebase returns empty model
 
   const result = await syncRemoteRuntimeConfig(configModule);
 
-  expect(configModule.saveRuntimeConfig).toHaveBeenCalledWith(bundledRuntimeConfig);
+  expect(configModule.saveRuntimeConfig).not.toHaveBeenCalled();
   expect(result).toEqual({
     inputText: 1,
     inputAudio: 2,
@@ -100,18 +118,18 @@ test('persists bundled fallback runtime config when Firebase returns empty model
     outputText: 5,
   });
   expect(mockTrackEvent).toHaveBeenCalledWith('remote_config_sync_result', {
-    result: 'fallback',
+    result: 'missing_model',
     has_model: 'false',
-    has_system_prompt: 'false',
+    has_system_prompt: 'true',
   });
 });
 
-test('persists bundled fallback runtime config when Firebase fetch fails', async () => {
+test('does not overwrite runtime config when Firebase fetch fails', async () => {
   mockFetchAndActivate.mockRejectedValueOnce(new Error('offline'));
 
   const result = await syncRemoteRuntimeConfig(configModule);
 
-  expect(configModule.saveRuntimeConfig).toHaveBeenCalledWith(bundledRuntimeConfig);
+  expect(configModule.saveRuntimeConfig).not.toHaveBeenCalled();
   expect(result).toEqual(emptyTranscriptionCostRates);
   expect(mockRecordNonFatalCrash).toHaveBeenCalledWith(
     expect.any(Error),
@@ -140,7 +158,7 @@ test('fetches transcription cost rates on iOS release builds', async () => {
     const result = await syncRemoteRuntimeConfigForIOS(configModule);
 
     expect(configModule.saveRuntimeConfig).toHaveBeenCalledWith({
-      model: 'gemini-3.1-flash-preview',
+      model: 'remote-config-model',
       systemPrompt: 'Return only Belarusian transcript text.',
       keyboardCommandTimeout: 3.5,
       keyboardTranscriptionTimeout: 24,
@@ -162,7 +180,7 @@ test('falls back to bundled keyboard timeout values when Firebase timeout config
   mockGetString.mockImplementation((key: string) => {
     switch (key) {
       case 'gemini_model':
-        return 'gemini-3.1-flash-preview';
+        return 'remote-config-model';
       case 'gemini_system_prompt':
         return 'Return only Belarusian transcript text.';
       case 'keyboard_command_timeout_seconds':
@@ -187,7 +205,7 @@ test('falls back to bundled keyboard timeout values when Firebase timeout config
   await syncRemoteRuntimeConfig(configModule);
 
   expect(configModule.saveRuntimeConfig).toHaveBeenCalledWith({
-    model: 'gemini-3.1-flash-preview',
+    model: 'remote-config-model',
     systemPrompt: 'Return only Belarusian transcript text.',
     keyboardCommandTimeout: bundledRuntimeConfig.keyboardCommandTimeout,
     keyboardTranscriptionTimeout:
