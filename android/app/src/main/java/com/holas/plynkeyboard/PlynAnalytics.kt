@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import com.google.firebase.analytics.FirebaseAnalytics
 
-object PlyńAnalytics {
+object PlynAnalytics {
   fun trackEvent(context: Context, name: String, params: Map<String, Any>) {
     try {
       val bundle = Bundle()

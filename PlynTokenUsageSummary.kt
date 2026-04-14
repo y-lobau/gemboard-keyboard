@@ -1,11 +1,11 @@
-package com.holas.Plyńkeyboard
+package com.holas.plynkeyboard
 
 import android.content.Context
 import com.facebook.react.bridge.WritableNativeMap
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class PlyńTokenModalitySummary(
+data class PlynTokenModalitySummary(
   val text: Int,
   val audio: Int,
   val image: Int,
@@ -20,7 +20,7 @@ data class PlyńTokenModalitySummary(
     putInt("document", document)
   }
 
-  operator fun plus(other: PlyńTokenModalitySummary) = PlyńTokenModalitySummary(
+  operator fun plus(other: PlynTokenModalitySummary) = PlynTokenModalitySummary(
     text = text + other.text,
     audio = audio + other.audio,
     image = image + other.image,
@@ -29,7 +29,7 @@ data class PlyńTokenModalitySummary(
   )
 
   companion object {
-    val ZERO = PlyńTokenModalitySummary(
+    val ZERO = PlynTokenModalitySummary(
       text = 0,
       audio = 0,
       image = 0,
@@ -37,7 +37,7 @@ data class PlyńTokenModalitySummary(
       document = 0,
     )
 
-    fun fromTokenDetails(details: JSONArray?): PlyńTokenModalitySummary {
+    fun fromTokenDetails(details: JSONArray?): PlynTokenModalitySummary {
       if (details == null) {
         return ZERO
       }
@@ -61,15 +61,15 @@ data class PlyńTokenModalitySummary(
   }
 }
 
-data class PlyńTokenUsageSummary(
+data class PlynTokenUsageSummary(
   val inputTokens: Int,
   val cachedInputTokens: Int,
   val outputTokens: Int,
   val totalTokens: Int,
   val requestCount: Int,
-  val inputByModality: PlyńTokenModalitySummary,
-  val cachedInputByModality: PlyńTokenModalitySummary,
-  val outputByModality: PlyńTokenModalitySummary,
+  val inputByModality: PlynTokenModalitySummary,
+  val cachedInputByModality: PlynTokenModalitySummary,
+  val outputByModality: PlynTokenModalitySummary,
 ) {
   fun toWritableMap() = WritableNativeMap().apply {
     putInt("inputTokens", inputTokens)
@@ -83,18 +83,18 @@ data class PlyńTokenUsageSummary(
   }
 
   companion object {
-    val ZERO = PlyńTokenUsageSummary(
+    val ZERO = PlynTokenUsageSummary(
       inputTokens = 0,
       cachedInputTokens = 0,
       outputTokens = 0,
       totalTokens = 0,
       requestCount = 0,
-      inputByModality = PlyńTokenModalitySummary.ZERO,
-      cachedInputByModality = PlyńTokenModalitySummary.ZERO,
-      outputByModality = PlyńTokenModalitySummary.ZERO,
+      inputByModality = PlynTokenModalitySummary.ZERO,
+      cachedInputByModality = PlynTokenModalitySummary.ZERO,
+      outputByModality = PlynTokenModalitySummary.ZERO,
     )
 
-    fun fromUsageMetadata(usageMetadata: JSONObject?): PlyńTokenUsageSummary? {
+    fun fromUsageMetadata(usageMetadata: JSONObject?): PlynTokenUsageSummary? {
       if (usageMetadata == null) {
         return null
       }
@@ -104,19 +104,19 @@ data class PlyńTokenUsageSummary(
         return null
       }
 
-      return PlyńTokenUsageSummary(
+      return PlynTokenUsageSummary(
         inputTokens = usageMetadata.optInt("promptTokenCount", 0),
         cachedInputTokens = usageMetadata.optInt("cachedContentTokenCount", 0),
         outputTokens = usageMetadata.optInt("candidatesTokenCount", 0),
         totalTokens = totalTokens,
         requestCount = 1,
-        inputByModality = PlyńTokenModalitySummary.fromTokenDetails(
+        inputByModality = PlynTokenModalitySummary.fromTokenDetails(
           usageMetadata.optJSONArray("promptTokensDetails"),
         ),
-        cachedInputByModality = PlyńTokenModalitySummary.fromTokenDetails(
+        cachedInputByModality = PlynTokenModalitySummary.fromTokenDetails(
           usageMetadata.optJSONArray("cacheTokensDetails"),
         ),
-        outputByModality = PlyńTokenModalitySummary.fromTokenDetails(
+        outputByModality = PlynTokenModalitySummary.fromTokenDetails(
           usageMetadata.optJSONArray("candidatesTokensDetails"),
         ),
       )
@@ -124,7 +124,7 @@ data class PlyńTokenUsageSummary(
   }
 }
 
-object PlyńTokenUsageStore {
+object PlynTokenUsageStore {
   private const val INPUT_TOKENS = "gemini_total_input_tokens"
   private const val CACHED_INPUT_TOKENS = "gemini_total_cached_input_tokens"
   private const val OUTPUT_TOKENS = "gemini_total_output_tokens"
@@ -146,29 +146,29 @@ object PlyńTokenUsageStore {
   private const val OUTPUT_VIDEO_TOKENS = "gemini_total_output_video_tokens"
   private const val OUTPUT_DOCUMENT_TOKENS = "gemini_total_output_document_tokens"
 
-  fun getSummary(context: Context): PlyńTokenUsageSummary {
-    val prefs = PlyńPreferences.getSharedPreferences(context)
-    return PlyńTokenUsageSummary(
+  fun getSummary(context: Context): PlynTokenUsageSummary {
+    val prefs = PlynPreferences.getSharedPreferences(context)
+    return PlynTokenUsageSummary(
       inputTokens = prefs.getInt(INPUT_TOKENS, 0),
       cachedInputTokens = prefs.getInt(CACHED_INPUT_TOKENS, 0),
       outputTokens = prefs.getInt(OUTPUT_TOKENS, 0),
       totalTokens = prefs.getInt(TOTAL_TOKENS, 0),
       requestCount = prefs.getInt(REQUEST_COUNT, 0),
-      inputByModality = PlyńTokenModalitySummary(
+      inputByModality = PlynTokenModalitySummary(
         text = prefs.getInt(INPUT_TEXT_TOKENS, 0),
         audio = prefs.getInt(INPUT_AUDIO_TOKENS, 0),
         image = prefs.getInt(INPUT_IMAGE_TOKENS, 0),
         video = prefs.getInt(INPUT_VIDEO_TOKENS, 0),
         document = prefs.getInt(INPUT_DOCUMENT_TOKENS, 0),
       ),
-      cachedInputByModality = PlyńTokenModalitySummary(
+      cachedInputByModality = PlynTokenModalitySummary(
         text = prefs.getInt(CACHED_INPUT_TEXT_TOKENS, 0),
         audio = prefs.getInt(CACHED_INPUT_AUDIO_TOKENS, 0),
         image = prefs.getInt(CACHED_INPUT_IMAGE_TOKENS, 0),
         video = prefs.getInt(CACHED_INPUT_VIDEO_TOKENS, 0),
         document = prefs.getInt(CACHED_INPUT_DOCUMENT_TOKENS, 0),
       ),
-      outputByModality = PlyńTokenModalitySummary(
+      outputByModality = PlynTokenModalitySummary(
         text = prefs.getInt(OUTPUT_TEXT_TOKENS, 0),
         audio = prefs.getInt(OUTPUT_AUDIO_TOKENS, 0),
         image = prefs.getInt(OUTPUT_IMAGE_TOKENS, 0),
@@ -178,13 +178,13 @@ object PlyńTokenUsageStore {
     )
   }
 
-  fun addSummary(context: Context, summary: PlyńTokenUsageSummary?) {
+  fun addSummary(context: Context, summary: PlynTokenUsageSummary?) {
     if (summary == null) {
       return
     }
 
     val current = getSummary(context)
-    PlyńPreferences.getSharedPreferences(context)
+    PlynPreferences.getSharedPreferences(context)
       .edit()
       .putInt(INPUT_TOKENS, current.inputTokens + summary.inputTokens)
       .putInt(CACHED_INPUT_TOKENS, current.cachedInputTokens + summary.cachedInputTokens)

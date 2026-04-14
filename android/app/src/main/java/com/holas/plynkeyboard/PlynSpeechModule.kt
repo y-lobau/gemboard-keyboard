@@ -7,7 +7,7 @@ import com.facebook.react.bridge.ReactMethod
 import java.io.File
 import java.util.concurrent.Executors
 
-class PlyńSpeechModule(private val reactContext: ReactApplicationContext) :
+class PlynSpeechModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
   private val executor = Executors.newSingleThreadExecutor()
@@ -24,7 +24,7 @@ class PlyńSpeechModule(private val reactContext: ReactApplicationContext) :
         return
       }
 
-      val outputFile = File(reactContext.cacheDir, "Plyń-app.wav")
+      val outputFile = File(reactContext.cacheDir, "Plyn-app.wav")
       recorder = WavAudioRecorder(outputFile).also { it.start() }
       promise.resolve(null)
     } catch (error: Exception) {
@@ -47,8 +47,9 @@ class PlyńSpeechModule(private val reactContext: ReactApplicationContext) :
         val outputFile = activeRecorder.stop()
         val apiKey = PlynPreferences.getSharedPreferences(reactContext).getString(PlynPreferences.API_KEY, null)
           ?: throw IllegalStateException("Save your Gemini API key before recording.")
-        val transcript = transcriptionClient.transcribeStream(reactContext, apiKey, outputFile) { _ -> }
-        promise.resolve(transcript)
+        val result = transcriptionClient.transcribeStream(reactContext, apiKey, outputFile) { _ -> }
+        PlynTokenUsageStore.add(reactContext, result.usageSummary)
+        promise.resolve(result.transcript)
       } catch (error: Exception) {
         promise.reject("transcription_error", error.message, error)
       }

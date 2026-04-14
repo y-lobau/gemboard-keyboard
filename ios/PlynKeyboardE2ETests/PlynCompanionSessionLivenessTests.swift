@@ -1,13 +1,55 @@
 import XCTest
 
 final class PlynCompanionSessionLivenessTests: XCTestCase {
+  func testReevaluatesDemandWhenSessionActivityChangesWhileKeyboardStaysVisible() {
+    let previousContext = PlynCompanionSessionDemand.Context(
+      isKeyboardVisible: true,
+      isAppBackgrounded: true,
+      isSessionActive: true,
+      hasAPIKey: true,
+      activationSource: .automatic
+    )
+    let currentContext = PlynCompanionSessionDemand.Context(
+      isKeyboardVisible: true,
+      isAppBackgrounded: true,
+      isSessionActive: false,
+      hasAPIKey: true,
+      activationSource: .automatic
+    )
+
+    XCTAssertTrue(
+      PlynCompanionSessionDemand.shouldReevaluate(
+        previousContext: previousContext,
+        currentContext: currentContext
+      )
+    )
+  }
+
+  func testDoesNotReevaluateDemandWhenInputsAreUnchangedWithoutForce() {
+    let context = PlynCompanionSessionDemand.Context(
+      isKeyboardVisible: true,
+      isAppBackgrounded: true,
+      isSessionActive: false,
+      hasAPIKey: true,
+      activationSource: .automatic
+    )
+
+    XCTAssertFalse(
+      PlynCompanionSessionDemand.shouldReevaluate(
+        previousContext: context,
+        currentContext: context
+      )
+    )
+  }
+
   func testRequestsSessionStartWhenKeyboardBecomesVisibleAndSessionIsInactive() {
     XCTAssertEqual(
       PlynCompanionSessionDemand.actionForKeyboardVisibility(
         isKeyboardVisible: true,
         isAppBackgrounded: true,
         isSessionActive: false,
-        hasAPIKey: true
+        hasAPIKey: true,
+        activationSource: nil
       ),
       .start
     )
@@ -19,21 +61,36 @@ final class PlynCompanionSessionLivenessTests: XCTestCase {
         isKeyboardVisible: true,
         isAppBackgrounded: true,
         isSessionActive: false,
-        hasAPIKey: false
+        hasAPIKey: false,
+        activationSource: nil
       ),
       .none
     )
   }
 
-  func testRequestsSessionStopWhenKeyboardHidesWhileAppIsBackgrounded() {
+  func testDoesNotRequestSessionStartWhileCompanionAppIsForegroundedEvenIfKeyboardIsVisible() {
+    XCTAssertEqual(
+      PlynCompanionSessionDemand.actionForKeyboardVisibility(
+        isKeyboardVisible: true,
+        isAppBackgrounded: false,
+        isSessionActive: false,
+        hasAPIKey: true,
+        activationSource: nil
+      ),
+      .none
+    )
+  }
+
+  func testKeepsSessionRunningWhenKeyboardHidesWhileAppIsBackgrounded() {
     XCTAssertEqual(
       PlynCompanionSessionDemand.actionForKeyboardVisibility(
         isKeyboardVisible: false,
         isAppBackgrounded: true,
         isSessionActive: true,
-        hasAPIKey: true
+        hasAPIKey: true,
+        activationSource: .automatic
       ),
-      .stop
+      .none
     )
   }
 
@@ -47,6 +104,7 @@ final class PlynCompanionSessionLivenessTests: XCTestCase {
         isAppBackgrounded: true,
         isSessionActive: true,
         hasAPIKey: true,
+        activationSource: .automatic,
         recoveryAttemptTimestamp: recoveryAttemptTimestamp,
         now: now
       ),
@@ -54,13 +112,40 @@ final class PlynCompanionSessionLivenessTests: XCTestCase {
     )
   }
 
-  func testKeepsSessionRunningWhenKeyboardHidesButCompanionAppIsForegrounded() {
+  func testStopsAutomaticKeyboardDrivenSessionWhenCompanionAppReturnsToForeground() {
     XCTAssertEqual(
       PlynCompanionSessionDemand.actionForKeyboardVisibility(
         isKeyboardVisible: false,
         isAppBackgrounded: false,
         isSessionActive: true,
-        hasAPIKey: true
+        hasAPIKey: true,
+        activationSource: .automatic
+      ),
+      .stop
+    )
+  }
+
+  func testKeepsManualForegroundSessionRunningWhenStartedFromCompanionApp() {
+    XCTAssertEqual(
+      PlynCompanionSessionDemand.actionForKeyboardVisibility(
+        isKeyboardVisible: false,
+        isAppBackgrounded: false,
+        isSessionActive: true,
+        hasAPIKey: true,
+        activationSource: .manual
+      ),
+      .none
+    )
+  }
+
+  func testDoesNotStopWhenForegroundAppAlreadyHasNoActiveSession() {
+    XCTAssertEqual(
+      PlynCompanionSessionDemand.actionForKeyboardVisibility(
+        isKeyboardVisible: false,
+        isAppBackgrounded: false,
+        isSessionActive: false,
+        hasAPIKey: true,
+        activationSource: nil
       ),
       .none
     )

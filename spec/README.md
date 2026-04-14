@@ -15,6 +15,10 @@ Plyń is a React Native application with native keyboard integrations for speech
 - Android provides a system keyboard implemented as an `InputMethodService`.
 - All visible UI copy in the host app and the Android keyboard must be shown in Belarusian.
 - The Android keyboard exposes a press-and-hold microphone control, records audio while held, and only starts Gemini transcription after the user releases the microphone.
+- The Android keyboard banner must use the same surface, tray, microphone-button, waveform, and standard-key dimensions as the iOS keyboard banner so both keyboard UIs render with matching compact proportions.
+- The Android keyboard must use the same keyboard banner colors and microphone-state icon language as the iOS keyboard for ready, recording, and Gemini-processing states.
+- While Android is recording, its keyboard waveform must animate from live microphone input so visible bar motion responds to the speaker's voice instead of staying static.
+- While Android is waiting for Gemini transcription, its keyboard waveform and microphone button must switch into the same processing-style presentation used on iOS.
 - On Android, the host app onboarding must request microphone permission when it first opens on a device that has not granted that access yet, and it must also provide an explicit onboarding action to grant that permission later.
 - If the Android keyboard is used without a saved Gemini API key or without microphone permission, it must open the companion app directly into the setup flow so the user can finish the missing step there.
 - After the user releases the Android keyboard microphone, Gemini transcript text must appear progressively in the active input as streamed transcript snapshots arrive, without duplicating already inserted text or collapsing required spaces between words.
@@ -25,10 +29,13 @@ Plyń is a React Native application with native keyboard integrations for speech
 - The iOS keyboard extension erase control removes the previous word during normal ready-state editing, but if the cursor is on an empty line immediately after a newline, it removes only that newline boundary.
 - On both platforms, pressing the erase control begins deleting immediately, and holding it continues to repeat that platform's erase action after a short initial delay until the press ends.
 - While the iOS keyboard is recording or waiting for the companion session to accept or finish a transcription request, the erase, space, enter, and microphone controls must be visibly inactive.
-- The iOS companion app automatically starts a background recording session when a saved Gemini API key is available and microphone access is granted.
+- The iOS companion app keeps the companion audio session inactive while the app itself is in the foreground, even when a saved Gemini API key is available, unless the user explicitly starts the session from the app's manual Run control.
+- When the iOS app is backgrounded and the keyboard extension becomes visible with a saved Gemini API key, the companion app starts or restores the background recording session so keyboard dictation can work again, including when the host app returns from the background and the keyboard is still onscreen.
 - While that iOS companion session is active, the keyboard extension can trigger speech capture, receive the Gemini transcript through shared app-group storage, and insert it into the active text input without a manual round trip through the app for each utterance.
-- When the iOS keyboard extension leaves the screen while the companion app remains backgrounded, the companion session must stop and release its audio session so other audio playback outside the keyboard is not blocked.
-- When the user returns to the iOS keyboard extension, the companion app must automatically try to restore the companion session again so dictation becomes available without requiring a separate manual stop-start step.
+- If the iOS keyboard still sees an active companion session flag but its ready-state heartbeat is stale, pressing the keyboard microphone must try capture through the existing session before falling back to reopening the companion app.
+- If the iOS keyboard already started a capture against that still-active shared session, releasing the microphone must still finish the capture and enter processing even if the companion heartbeat remains stale during the hold.
+- When the iOS companion session has already been started, hiding the iOS keyboard extension while the companion app remains backgrounded must not immediately tear that session down, so later keyboard use can still reuse the running companion session without requiring a foreground app handoff.
+- When the running iOS companion session is interrupted, terminated, or otherwise unavailable, returning to the iOS keyboard extension must still prompt session recovery so dictation becomes available again.
 - After the user releases the iOS keyboard microphone, the companion session must publish streamed Gemini transcript snapshots into shared app-group storage so the keyboard extension can update the active text input progressively.
 - The iOS keyboard extension must treat each shared transcript update as the latest full snapshot for the active utterance, replace only its own provisional insertion, and avoid duplicating text or collapsing required spaces if newer snapshots arrive.
 - Streamed transcript assembly must preserve chunk-boundary whitespace emitted by Gemini so words do not merge when a required separator arrives at the end of one chunk or as its own chunk.
@@ -54,7 +61,7 @@ Plyń is a React Native application with native keyboard integrations for speech
 - If Firebase Remote Config cannot be accessed, the host app must send a non-fatal Crashlytics error with context about the failed sync while continuing to use the existing fallback runtime behavior.
 - When a new keyboard dictation session starts, the platform-native dictation flow refreshes Firebase Remote Config before the transcription request is built so the current transcription can use the latest Gemini model and system prompt without requiring a full app relaunch.
 - When a dictation request reaches Gemini, the app records analytics for the dictation outcome, Gemini latency, and output-size bucket without storing transcript text.
-- The host app stores cumulative Gemini token usage totals for successful requests only, also keeps the token stats for the latest successful Gemini request on that device, and exposes both in a collapsed-by-default summary card titled `Кошт транскрыпцыі`.
+- The host app stores cumulative Gemini token usage totals for successful requests only on both iOS and Android, also keeps the token stats for the latest successful Gemini request on that device, and exposes both in a collapsed-by-default summary card titled `Кошт транскрыпцыі`.
 - When expanded, that summary card shows three groups in this order: `Апошні запыт`, `Усяго`, and `Сярэдняе на запыт`.
 - The `avg per request` group derives its values from the cumulative token totals divided by the count of successful Gemini requests on that device.
 - Each row in that summary shows the token total and the computed dollar cost in the format `tokens / dollars`, and the value column is labeled `токены/$`.
@@ -64,6 +71,7 @@ Plyń is a React Native application with native keyboard integrations for speech
 - Android keyboard code reads the stored API key from shared app storage.
 - Android keyboard code reads the persisted Gemini model and system prompt from shared app storage.
 - Android keyboard code records analytics for dictation attempts, blocked states, outcomes, and Gemini latency buckets.
+- Android keyboard code persists Gemini usage metadata from successful transcriptions into shared app storage so the host-app `Кошт транскрыпцыі` summary reflects on-device keyboard usage.
 - iOS host app and keyboard extension share configuration and transcript handoff state through a shared app-group container.
 - The iOS host app persists the fetched Gemini model and system prompt into the shared app-group container so the keyboard extension uses the same runtime configuration.
 - The host app persists the `Як гэта працуе`, `Наладзьце Plyń`, and `Кошт транскрыпцыі` expand/collapse preferences in native local storage.
@@ -72,10 +80,15 @@ Plyń is a React Native application with native keyboard integrations for speech
 - The iOS host app explains how to enable the Plyń keyboard and when full access is required.
 - The iOS host app shows whether the companion background session is active and can retry activation if it stops.
 - If the iOS host app saves a Gemini API key successfully but cannot restart the companion session immediately afterward, it must still confirm that the key was saved and separately report that the companion session is inactive.
-- The iOS host app accepts a `plyn://session` deep link that brings the app into the foreground and immediately tries to restore the companion session.
-- If the iOS companion session is interrupted or suspended by another app's audio session, returning to the companion app must retry that background session automatically so the keyboard can recover without requiring a full app relaunch.
+- The iOS host app accepts a `plyn://session` deep link that brings the app into the foreground, but while the app remains foregrounded it must still keep the companion audio session stopped until keyboard use resumes.
+- The iOS host app must acknowledge `plyn://` companion URLs as handled when launched from the keyboard so the keyboard-to-app handoff is not rejected after foregrounding the app.
+- If the iOS companion session is interrupted or suspended by another app's audio session, returning to the companion app must leave the companion audio inactive while the app stays foregrounded, and later keyboard use must still be able to restore the session without requiring a full app relaunch.
 - As soon as the iOS keyboard initiates the companion-app recovery flow, it must treat that handoff as in-progress for a short recovery window so even a near-immediate return to the keyboard does not fall back into the same `open companion app` loop before app-side lifecycle callbacks finish.
-- If iOS cannot provide a valid microphone input format when the companion session starts, the host app must keep running, leave the companion session inactive, and report the start failure through diagnostics instead of crashing.
+- If iOS cannot provide a valid microphone input format when the companion session starts on a physical device, the host app must keep running, leave the companion session inactive, and report the start failure through diagnostics instead of crashing.
+- If the iOS Simulator cannot provide a valid microphone input format when the companion session starts, the host app must enter a simulator validation mode that keeps the companion session marked active for handoff and shared-state testing without requiring live microphone audio.
+- In that iOS Simulator validation mode, the companion app and keyboard extension must stay synchronized through the same shared validation state so the keyboard sees the saved API key, companion session status, and later handoff updates without diverging from the app UI.
+- In that iOS Simulator validation mode, the companion app and keyboard extension must expose that validation-only state through the shared iOS session data so both surfaces stay aligned about the session being active without claiming live microphone capture is available.
+- In that iOS Simulator validation mode, pressing the iOS keyboard microphone must not insert placeholder dictated text into the active document; instead, the keyboard must keep the current text unchanged and show a clear Belarusian message that live dictation requires a physical device.
 - On iOS, the host app must expose a visible debug entry point in the top onboarding card that opens a debug panel showing the shared handoff state and recent keyboard and companion timelines from the app-group container.
 - The host app accepts a `plyn://debug/launch` deep link that opens an in-app full-screen preview of the iOS loading view using the same launch logo artwork and background color for visual verification.
 

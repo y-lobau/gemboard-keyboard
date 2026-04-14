@@ -3,6 +3,7 @@ import UIKit
 final class KeyboardViewController: UIInputViewController {
   private static let companionAppURL = URL(string: "plyn://")
   private static let sessionRecoveryURL = URL(string: "plyn://session")
+  private static let companionTimeoutMessage = "Праграма-кампаньён не адказвае"
   private static let widgetSurfaceColor = UIColor(
     red: 74.0 / 255.0,
     green: 89.0 / 255.0,
@@ -32,6 +33,7 @@ final class KeyboardViewController: UIInputViewController {
     case ready
     case recording
     case processing
+    case validationOnly
     case setupRequired
     case sessionRequired
     case sessionStarting
@@ -366,11 +368,20 @@ final class KeyboardViewController: UIInputViewController {
     nextKeyboardButton.isHidden = !needsInputModeSwitchKey
 
     let sessionActive = hasResponsiveCompanionSession()
+    let validationOnly = PlynSharedStore.isValidationOnlySession()
     let sharedKeyboardStatus = PlynSharedStore.keyboardStatus()
+    let timedOut = hasCompanionTimedOut(status: sharedKeyboardStatus)
+
+    if transientErrorMessage == Self.companionTimeoutMessage, !timedOut {
+      transientErrorMessage = nil
+    } else if transientErrorMessage?.isEmpty == false, sessionActive, !timedOut {
+      transientErrorMessage = nil
+    }
+
     let transientErrorLogValue = transientErrorMessage ?? "<none>"
 
     logDebug(
-      "reloadState status=\(sharedKeyboardStatus.rawValue) sessionActive=\(sessionActive) apiKey=\(PlynSharedStore.hasApiKey()) transientError=\(transientErrorLogValue)"
+      "reloadState status=\(sharedKeyboardStatus.rawValue) sessionActive=\(sessionActive) validationOnly=\(validationOnly) apiKey=\(PlynSharedStore.hasApiKey()) transientError=\(transientErrorLogValue)"
     )
 
     if pendingStopAfterRecordingStarts, sharedKeyboardStatus == .recording {
@@ -380,7 +391,11 @@ final class KeyboardViewController: UIInputViewController {
 
     applyTranscriptSnapshotIfNeeded(sharedKeyboardStatus: sharedKeyboardStatus)
 
-    let presentationState = makePresentationState(sessionActive: sessionActive, keyboardStatus: sharedKeyboardStatus)
+    let presentationState = makePresentationState(
+      sessionActive: sessionActive,
+      isValidationOnlySession: validationOnly,
+      keyboardStatus: sharedKeyboardStatus
+    )
     applyPresentationState(presentationState)
   }
 
@@ -407,6 +422,7 @@ final class KeyboardViewController: UIInputViewController {
 
   private func makePresentationState(
     sessionActive: Bool,
+    isValidationOnlySession: Bool,
     keyboardStatus: PlynSharedStore.KeyboardStatus
   ) -> KeyboardPresentationState {
     if let transientErrorMessage, !transientErrorMessage.isEmpty {
@@ -425,8 +441,13 @@ final class KeyboardViewController: UIInputViewController {
       return .sessionRequired
     }
 
+    if isValidationOnlySession {
+      transientErrorMessage = nil
+      return .validationOnly
+    }
+
     if hasCompanionTimedOut(status: keyboardStatus) {
-      transientErrorMessage = "Праграма-кампаньён не адказвае"
+      transientErrorMessage = Self.companionTimeoutMessage
       return .companionTimeout
     }
 
@@ -520,6 +541,13 @@ final class KeyboardViewController: UIInputViewController {
       nextWaveAnimationMode = .processing
       controlsEnabled = false
       deleteEnabled = false
+    case .validationOnly:
+      statusText = "На сімулятары дыктоўка недаступная. Правер на прыладзе"
+      statusColor = supportingInfoColor
+      micSymbol = "iphone.gen3.radiowaves.left.and.right"
+      micBackground = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
+      micTint = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
+      waveColor = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 0.9)
     case .setupRequired:
       statusText = "Дадай API-ключ у праграме-кампаньёне"
       statusColor = supportingInfoColor
@@ -802,10 +830,12 @@ final class KeyboardViewController: UIInputViewController {
   @objc
   private func handleMicPressDown() {
     let keyboardStatus = PlynSharedStore.keyboardStatus()
+    let sessionActive = PlynSharedStore.isSessionActive()
+    let validationOnly = PlynSharedStore.isValidationOnlySession()
     let timedOut = hasCompanionTimedOut(status: keyboardStatus) || (transientErrorMessage?.isEmpty == false)
 
     logDebug(
-      "handleMicPressDown status=\(keyboardStatus.rawValue) timedOut=\(timedOut) apiKey=\(PlynSharedStore.hasApiKey()) responsiveSession=\(hasResponsiveCompanionSession())"
+      "handleMicPressDown status=\(keyboardStatus.rawValue) timedOut=\(timedOut) validationOnly=\(validationOnly) apiKey=\(PlynSharedStore.hasApiKey()) responsiveSession=\(hasResponsiveCompanionSession()) sessionActive=\(sessionActive)"
     )
 
     if timedOut {
@@ -819,6 +849,17 @@ final class KeyboardViewController: UIInputViewController {
 
     transientErrorMessage = nil
 
+    switch PlynKeyboardMicPressDecision.forValidationOnlySession(isValidationOnly: validationOnly) {
+    case .blockForValidationOnlySession:
+      logDebug("blocked mic press because session is validation-only on simulator")
+      reloadState()
+      return
+    case .allowCapture:
+      break
+    case .captureWithExistingSession, .finishCaptureWithExistingSession, .cancelCapture, .reopenCompanionApp:
+      break
+    }
+
     guard PlynSharedStore.hasApiKey() else {
       logDebug("blocked mic press because API key is missing; trying companion app root URL")
       openCompanionApp(
@@ -829,11 +870,22 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     guard hasResponsiveCompanionSession() else {
-      logDebug("blocked mic press because responsive session is unavailable; trying session recovery URL")
-      openCompanionApp(
-        using: Self.sessionRecoveryURL,
-        failureMessage: "Адкрый праграму-кампаньён уручную і запусці сесію"
-      )
+      switch PlynKeyboardMicPressDecision.forUnavailableResponsiveSession(isSessionActive: sessionActive) {
+      case .captureWithExistingSession:
+        logDebug("responsive session unavailable but shared state is still active; sending startCapture command")
+        transientErrorMessage = nil
+        isMicButtonPressed = true
+        pendingStopAfterRecordingStarts = false
+        PlynSharedStore.saveKeyboardCommand(.startCapture)
+      case .reopenCompanionApp:
+        logDebug("blocked mic press because responsive session is unavailable and session is inactive; trying session recovery URL")
+        openCompanionApp(
+          using: Self.sessionRecoveryURL,
+          failureMessage: "Адкрый праграму-кампаньён уручную і запусці сесію"
+        )
+      case .allowCapture, .blockForValidationOnlySession, .finishCaptureWithExistingSession, .cancelCapture:
+        break
+      }
       return
     }
 
@@ -858,7 +910,7 @@ final class KeyboardViewController: UIInputViewController {
 
   @objc
   private func handleMicPressUp() {
-    guard PlynSharedStore.hasApiKey(), hasResponsiveCompanionSession() else {
+    guard PlynSharedStore.hasApiKey() else {
       isMicButtonPressed = false
       pendingStopAfterRecordingStarts = false
       return
@@ -870,7 +922,31 @@ final class KeyboardViewController: UIInputViewController {
 
     isMicButtonPressed = false
 
-    if PlynSharedStore.keyboardStatus() == .recording {
+    let keyboardStatus = PlynSharedStore.keyboardStatus()
+    let sessionActive = PlynSharedStore.isSessionActive()
+
+    if !hasResponsiveCompanionSession() {
+      switch PlynKeyboardMicPressDecision.forUnavailableResponsiveRelease(isSessionActive: sessionActive) {
+      case .finishCaptureWithExistingSession:
+        logDebug("responsive session unavailable on release but shared state is still active; finishing capture")
+        if keyboardStatus == .recording {
+          pendingStopAfterRecordingStarts = false
+          PlynSharedStore.saveKeyboardCommand(.stopCapture)
+        } else {
+          pendingStopAfterRecordingStarts = true
+        }
+      case .cancelCapture:
+        logDebug("responsive session unavailable on release and session is inactive; cancelling pending capture")
+        pendingStopAfterRecordingStarts = false
+      case .allowCapture, .blockForValidationOnlySession, .captureWithExistingSession, .reopenCompanionApp:
+        pendingStopAfterRecordingStarts = false
+      }
+
+      reloadState()
+      return
+    }
+
+    if keyboardStatus == .recording {
       pendingStopAfterRecordingStarts = false
       PlynSharedStore.saveKeyboardCommand(.stopCapture)
     } else {

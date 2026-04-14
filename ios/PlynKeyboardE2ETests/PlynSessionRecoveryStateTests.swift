@@ -4,7 +4,7 @@ final class PlynSessionRecoveryStateTests: XCTestCase {
   func testRecoversWhenSessionShouldStayActiveAndEngineStopped() {
     var state = PlynSessionRecoveryState()
 
-    state.markSessionRequestedActive()
+    state.markSessionRequestedActive(source: .automatic)
 
     XCTAssertTrue(state.shouldAttemptRecovery(engineRunning: false))
   }
@@ -12,7 +12,7 @@ final class PlynSessionRecoveryStateTests: XCTestCase {
   func testDoesNotRecoverAfterExplicitStop() {
     var state = PlynSessionRecoveryState()
 
-    state.markSessionRequestedActive()
+    state.markSessionRequestedActive(source: .automatic)
     state.markSessionStopped()
 
     XCTAssertFalse(state.shouldAttemptRecovery(engineRunning: false))
@@ -21,7 +21,7 @@ final class PlynSessionRecoveryStateTests: XCTestCase {
   func testDoesNotRecoverWhileSuspendedForHostAppRecording() {
     var state = PlynSessionRecoveryState()
 
-    state.markSessionRequestedActive()
+    state.markSessionRequestedActive(source: .automatic)
     state.markSuspendedForAppRecording()
 
     XCTAssertFalse(state.shouldAttemptRecovery(engineRunning: false))
@@ -30,7 +30,7 @@ final class PlynSessionRecoveryStateTests: XCTestCase {
   func testRecoversAgainAfterHostAppRecordingFinishes() {
     var state = PlynSessionRecoveryState()
 
-    state.markSessionRequestedActive()
+    state.markSessionRequestedActive(source: .automatic)
     state.markSuspendedForAppRecording()
     state.markResumedAfterAppRecording()
 
@@ -40,8 +40,25 @@ final class PlynSessionRecoveryStateTests: XCTestCase {
   func testDoesNotRecoverWhenEngineAlreadyRuns() {
     var state = PlynSessionRecoveryState()
 
-    state.markSessionRequestedActive()
+    state.markSessionRequestedActive(source: .automatic)
 
     XCTAssertFalse(state.shouldAttemptRecovery(engineRunning: true))
+  }
+
+  func testTracksManualActivationSourceWhileSessionShouldStayActive() {
+    var state = PlynSessionRecoveryState()
+
+    state.markSessionRequestedActive(source: .manual)
+
+    XCTAssertEqual(state.activationSource, .manual)
+  }
+
+  func testClearsActivationSourceAfterExplicitStop() {
+    var state = PlynSessionRecoveryState()
+
+    state.markSessionRequestedActive(source: .manual)
+    state.markSessionStopped()
+
+    XCTAssertNil(state.activationSource)
   }
 }

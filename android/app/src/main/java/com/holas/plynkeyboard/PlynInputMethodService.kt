@@ -3,6 +3,7 @@ package com.holas.plynkeyboard
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.net.Uri
 import android.os.Handler
@@ -10,22 +11,15 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputConnection
-import android.widget.Button
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
 
-class PlyńInputMethodService : InputMethodService() {
-  private enum class KeyboardUiState {
-    READY,
-    RECORDING,
-    PROCESSING,
-  }
-
+class PlynInputMethodService : InputMethodService() {
   private data class ActiveTranscriptionSession(
     val utteranceId: String,
     val inputConnection: InputConnection?,
@@ -41,17 +35,30 @@ class PlyńInputMethodService : InputMethodService() {
   private var recorder: WavAudioRecorder? = null
   private var statusView: TextView? = null
   private var speechButton: ImageButton? = null
-  private var deleteButton: Button? = null
-  private var spaceButton: Button? = null
-  private var enterButton: Button? = null
+  private var waveContainer: LinearLayout? = null
+  private var waveBars: List<View> = emptyList()
+  private var deleteButton: ImageButton? = null
+  private var spaceButton: ImageButton? = null
+  private var enterButton: ImageButton? = null
   private var deleteRepeatController: HoldRepeatController? = null
   private var activeTranscriptionSession: ActiveTranscriptionSession? = null
+  private var animatedWaveState: KeyboardUiState? = null
+  private var waveAnimationStep = 0
+  private var smoothedRecordingLevel = 0f
+  private val waveAnimationRunnable = object : Runnable {
+    override fun run() {
+      renderWaveFrame()
+      mainHandler.postDelayed(this, WAVE_FRAME_DELAY_MS)
+    }
+  }
 
   override fun onCreateInputView(): View {
     val root = layoutInflater.inflate(R.layout.keyboard_view, null)
     statusView = root.findViewById(R.id.statusText)
 
     speechButton = root.findViewById(R.id.speechButton)
+    waveContainer = root.findViewById(R.id.waveContainer)
+    waveBars = waveContainer?.children().orEmpty()
     spaceButton = root.findViewById(R.id.spaceButton)
     deleteButton = root.findViewById(R.id.deleteButton)
     enterButton = root.findViewById(R.id.enterButton)
@@ -101,7 +108,7 @@ class PlyńInputMethodService : InputMethodService() {
       currentInputConnection?.commitText("\n", 1)
     }
 
-    updateStatus(getString(R.string.Plyń_hold_to_talk))
+    updateStatus(getString(R.string.plyn_hold_to_talk))
     applyKeyboardUiState(KeyboardUiState.READY)
     return root
   }
@@ -116,6 +123,7 @@ class PlyńInputMethodService : InputMethodService() {
 
   override fun onDestroy() {
     deleteRepeatController?.stop()
+    stopWaveAnimation()
     recorder?.stop()
     executor.shutdownNow()
     super.onDestroy()
@@ -124,13 +132,14 @@ class PlyńInputMethodService : InputMethodService() {
   override fun onFinishInput() {
     deleteRepeatController?.stop()
     activeTranscriptionSession = null
+    stopWaveAnimation()
     applyKeyboardUiState(KeyboardUiState.READY)
     super.onFinishInput()
   }
 
   private fun startRecording() {
     if (recorder != null || activeTranscriptionSession != null) {
-      updateStatus(getString(R.string.Plyń_transcribing))
+      updateStatus(getString(R.string.plyn_transcribing))
       applyKeyboardUiState(KeyboardUiState.PROCESSING)
       return
     }
@@ -138,10 +147,10 @@ class PlyńInputMethodService : InputMethodService() {
     val apiKey = PlynPreferences.getSharedPreferences(this).getString(PlynPreferences.API_KEY, null)
 
     if (apiKey.isNullOrBlank()) {
-      updateStatus(getString(R.string.Plyń_missing_key))
+      updateStatus(getString(R.string.plyn_missing_key))
       applyKeyboardUiState(KeyboardUiState.READY)
       openCompanionAppForSetup()
-      PlyńAnalytics.trackEvent(
+      PlynAnalytics.trackEvent(
         this,
         "dictation_blocked",
         mapOf(
@@ -154,10 +163,10 @@ class PlyńInputMethodService : InputMethodService() {
     }
 
     if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-      updateStatus(getString(R.string.Plyń_missing_permission))
+      updateStatus(getString(R.string.plyn_missing_permission))
       applyKeyboardUiState(KeyboardUiState.READY)
       openCompanionAppForSetup()
-      PlyńAnalytics.trackEvent(
+      PlynAnalytics.trackEvent(
         this,
         "dictation_blocked",
         mapOf(
@@ -174,11 +183,11 @@ class PlyńInputMethodService : InputMethodService() {
         FirebaseRemoteRuntimeConfig.refresh(this)
       }
 
-      val outputFile = File(cacheDir, "Plyń-live.wav")
+      val outputFile = File(cacheDir, "Plyn-live.wav")
       recorder = WavAudioRecorder(outputFile).also { it.start() }
-      updateStatus(getString(R.string.Plyń_listening))
+      updateStatus(getString(R.string.plyn_listening))
       applyKeyboardUiState(KeyboardUiState.RECORDING)
-      PlyńAnalytics.trackEvent(
+      PlynAnalytics.trackEvent(
         this,
         "dictation_start",
         mapOf(
@@ -188,9 +197,9 @@ class PlyńInputMethodService : InputMethodService() {
         ),
       )
     } catch (error: Exception) {
-      updateStatus(error.message ?: getString(R.string.Plyń_generic_error))
+      updateStatus(error.message ?: getString(R.string.plyn_generic_error))
       applyKeyboardUiState(KeyboardUiState.READY)
-      PlyńAnalytics.trackEvent(
+      PlynAnalytics.trackEvent(
         this,
         "dictation_complete",
         mapOf(
@@ -207,7 +216,7 @@ class PlyńInputMethodService : InputMethodService() {
     val activeRecorder = recorder ?: return
     recorder = null
 
-    updateStatus(getString(R.string.Plyń_transcribing))
+    updateStatus(getString(R.string.plyn_transcribing))
     applyKeyboardUiState(KeyboardUiState.PROCESSING)
 
     val utteranceId = UUID.randomUUID().toString()
@@ -226,18 +235,20 @@ class PlyńInputMethodService : InputMethodService() {
         // uses the latest activated Firebase model when it is available.
         FirebaseRemoteRuntimeConfig.refresh(this)
         val apiKey = PlynPreferences.getSharedPreferences(this).getString(PlynPreferences.API_KEY, null)
-          ?: throw IllegalStateException(getString(R.string.Plyń_missing_key))
-        val transcript = transcriptionClient.transcribeStream(this, apiKey, audioFile) { snapshot ->
+          ?: throw IllegalStateException(getString(R.string.plyn_missing_key))
+        val result = transcriptionClient.transcribeStream(this, apiKey, audioFile) { snapshot ->
           mainHandler.post {
             applyTranscriptSnapshot(utteranceId, snapshot)
           }
         }
+        PlynTokenUsageStore.add(this, result.usageSummary)
+        val transcript = result.transcript
         val latencyMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(0)
         val outputChars = transcript.length
-        val outputSizeBucket = PlyńAnalytics.outputSizeBucket(outputChars)
-        val latencyBucket = PlyńAnalytics.latencyBucket(latencyMs)
+        val outputSizeBucket = PlynAnalytics.outputSizeBucket(outputChars)
+        val latencyBucket = PlynAnalytics.latencyBucket(latencyMs)
 
-        PlyńAnalytics.trackEvent(
+        PlynAnalytics.trackEvent(
           this,
           "dictation_complete",
           mapOf(
@@ -247,7 +258,7 @@ class PlyńInputMethodService : InputMethodService() {
             "output_size_bucket" to outputSizeBucket,
           ),
         )
-        PlyńAnalytics.trackEvent(
+        PlynAnalytics.trackEvent(
           this,
           "gemini_transcription_latency",
           mapOf(
@@ -260,7 +271,7 @@ class PlyńInputMethodService : InputMethodService() {
             "output_size_bucket" to outputSizeBucket,
           ),
         )
-        PlyńAnalytics.trackEvent(
+        PlynAnalytics.trackEvent(
           this,
           "gemini_transcription_size_latency",
           mapOf(
@@ -277,9 +288,9 @@ class PlyńInputMethodService : InputMethodService() {
         }
       } catch (error: Exception) {
         val latencyMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(0)
-        val latencyBucket = PlyńAnalytics.latencyBucket(latencyMs)
+        val latencyBucket = PlynAnalytics.latencyBucket(latencyMs)
 
-        PlyńAnalytics.trackEvent(
+        PlynAnalytics.trackEvent(
           this,
           "dictation_complete",
           mapOf(
@@ -289,7 +300,7 @@ class PlyńInputMethodService : InputMethodService() {
             "output_size_bucket" to "0",
           ),
         )
-        PlyńAnalytics.trackEvent(
+        PlynAnalytics.trackEvent(
           this,
           "gemini_transcription_latency",
           mapOf(
@@ -302,7 +313,7 @@ class PlyńInputMethodService : InputMethodService() {
             "output_size_bucket" to "0",
           ),
         )
-        PlyńAnalytics.trackEvent(
+        PlynAnalytics.trackEvent(
           this,
           "gemini_transcription_size_latency",
           mapOf(
@@ -350,8 +361,8 @@ class PlyńInputMethodService : InputMethodService() {
     session.hasInsertedSnapshot = renderedText.isNotBlank()
     session.lastSnapshotText = renderedText
     updateStatus(
-      if (renderedText.isBlank()) getString(R.string.Plyń_transcribing)
-      else getString(R.string.Plyń_streaming)
+      if (renderedText.isBlank()) getString(R.string.plyn_transcribing)
+      else getString(R.string.plyn_streaming)
     )
     applyKeyboardUiState(KeyboardUiState.PROCESSING)
   }
@@ -369,12 +380,12 @@ class PlyńInputMethodService : InputMethodService() {
       connection.finishComposingText()
       session.hasInsertedSnapshot = true
       session.lastSnapshotText = renderedText
-      updateStatus(getString(R.string.Plyń_inserted))
+      updateStatus(getString(R.string.plyn_inserted))
     } else if (!session.hasInsertedSnapshot && transcript.isBlank()) {
-      updateStatus(getString(R.string.Plyń_no_speech))
+      updateStatus(getString(R.string.plyn_no_speech))
     } else if (session.hasInsertedSnapshot) {
       session.inputConnection?.finishComposingText()
-      updateStatus(getString(R.string.Plyń_inserted))
+      updateStatus(getString(R.string.plyn_inserted))
     }
 
     activeTranscriptionSession = null
@@ -392,7 +403,7 @@ class PlyńInputMethodService : InputMethodService() {
     }
 
     activeTranscriptionSession = null
-    updateStatus(error.message ?: getString(R.string.Plyń_generic_error))
+    updateStatus(error.message ?: getString(R.string.plyn_generic_error))
     applyKeyboardUiState(KeyboardUiState.READY)
   }
 
@@ -450,47 +461,105 @@ class PlyńInputMethodService : InputMethodService() {
   }
 
   private fun applyKeyboardUiState(state: KeyboardUiState) {
-    val controlsEnabled = state == KeyboardUiState.READY
-    if (!controlsEnabled) {
+    val presentation = KeyboardUiPresentation.forState(state)
+    if (!presentation.deleteEnabled) {
       deleteRepeatController?.stop()
     }
 
     speechButton?.isEnabled = state != KeyboardUiState.PROCESSING
-    deleteButton?.isEnabled = controlsEnabled
-    spaceButton?.isEnabled = controlsEnabled
-    enterButton?.isEnabled = controlsEnabled
+    deleteButton?.isEnabled = presentation.deleteEnabled
+    spaceButton?.isEnabled = presentation.deleteEnabled
+    enterButton?.isEnabled = presentation.deleteEnabled
 
-    deleteButton?.alpha = if (controlsEnabled) 1f else 0.55f
-    spaceButton?.alpha = if (controlsEnabled) 1f else 0.55f
-    enterButton?.alpha = if (controlsEnabled) 1f else 0.55f
+    deleteButton?.alpha = if (presentation.deleteEnabled) 1f else 0.35f
+    spaceButton?.alpha = if (presentation.deleteEnabled) 1f else 0.35f
+    enterButton?.alpha = if (presentation.deleteEnabled) 1f else 0.35f
+    statusView?.setTextColor(Color.parseColor(presentation.statusColor))
+
+    configureMicButton(presentation)
+    updateWaveAppearance(presentation.waveColor)
 
     when (state) {
-      KeyboardUiState.READY -> configureMicButton(
-        backgroundRes = R.drawable.keyboard_mic_button_background,
-        tintColor = android.graphics.Color.parseColor("#141519"),
-        iconRes = android.R.drawable.ic_btn_speak_now,
-      )
-      KeyboardUiState.RECORDING -> configureMicButton(
-        backgroundRes = R.drawable.keyboard_mic_button_recording_background,
-        tintColor = android.graphics.Color.parseColor("#E2D9D2"),
-        iconRes = android.R.drawable.ic_media_pause,
-      )
-      KeyboardUiState.PROCESSING -> configureMicButton(
-        backgroundRes = R.drawable.keyboard_mic_button_processing_background,
-        tintColor = android.graphics.Color.parseColor("#D1D1D4"),
-        iconRes = android.R.drawable.ic_popup_sync,
-      )
+      KeyboardUiState.READY -> stopWaveAnimation()
+      KeyboardUiState.RECORDING, KeyboardUiState.PROCESSING -> startWaveAnimation(state)
     }
   }
 
-  private fun configureMicButton(
-    @DrawableRes backgroundRes: Int,
-    tintColor: Int,
-    @DrawableRes iconRes: Int,
-  ) {
-    speechButton?.setBackgroundResource(backgroundRes)
-    speechButton?.setImageResource(iconRes)
-    speechButton?.setColorFilter(tintColor)
-    speechButton?.alpha = if (speechButton?.isEnabled == true) 1f else 0.7f
+  private fun configureMicButton(presentation: KeyboardUiPresentation) {
+    speechButton?.setBackgroundResource(
+      when (presentation.micIcon) {
+        KeyboardMicIcon.MICROPHONE -> R.drawable.keyboard_mic_button_background
+        KeyboardMicIcon.STOP -> R.drawable.keyboard_mic_button_recording_background
+        KeyboardMicIcon.HOURGLASS -> R.drawable.keyboard_mic_button_processing_background
+      },
+    )
+    speechButton?.setImageResource(presentation.micIcon.drawableRes)
+    speechButton?.setColorFilter(Color.parseColor(presentation.micTintColor))
+    speechButton?.alpha = if (speechButton?.isEnabled == true) 1f else 0.45f
+  }
+
+  private fun updateWaveAppearance(colorHex: String) {
+    val color = Color.parseColor(colorHex)
+    waveBars.forEach { bar ->
+      bar.background?.mutate()?.setTint(color)
+      bar.alpha = if (colorHex == "#E6ADB3C2") 0.72f else 1f
+    }
+  }
+
+  private fun startWaveAnimation(state: KeyboardUiState) {
+    if (animatedWaveState == state) {
+      return
+    }
+
+    animatedWaveState = state
+    mainHandler.removeCallbacks(waveAnimationRunnable)
+    waveAnimationStep = 0
+    renderWaveFrame()
+    mainHandler.postDelayed(waveAnimationRunnable, WAVE_FRAME_DELAY_MS)
+  }
+
+  private fun stopWaveAnimation() {
+    mainHandler.removeCallbacks(waveAnimationRunnable)
+    animatedWaveState = null
+    smoothedRecordingLevel = 0f
+    waveAnimationStep = 0
+    applyWaveHeights(KeyboardWaveAnimator.idleHeights)
+  }
+
+  private fun renderWaveFrame() {
+    waveAnimationStep += 1
+    val heights = when {
+      recorder != null -> {
+        val liveLevel = recorder?.getLevel() ?: 0f
+        smoothedRecordingLevel = if (smoothedRecordingLevel == 0f) liveLevel else (smoothedRecordingLevel * 0.65f + liveLevel * 0.35f)
+        KeyboardWaveAnimator.recordingHeights(waveAnimationStep, smoothedRecordingLevel)
+      }
+      activeTranscriptionSession != null -> KeyboardWaveAnimator.processingHeights(waveAnimationStep)
+      else -> KeyboardWaveAnimator.idleHeights
+    }
+
+    applyWaveHeights(heights)
+  }
+
+  private fun applyWaveHeights(heights: List<Int>) {
+    if (heights.size != waveBars.size) {
+      return
+    }
+
+    heights.zip(waveBars).forEach { (heightDp, bar) ->
+      val layoutParams = bar.layoutParams
+      layoutParams.height = dpToPx(heightDp)
+      bar.layoutParams = layoutParams
+    }
+  }
+
+  private fun LinearLayout.children(): List<View> =
+    (0 until childCount).map { getChildAt(it) }
+
+  private fun dpToPx(valueDp: Int): Int =
+    (valueDp * resources.displayMetrics.density + 0.5f).toInt()
+
+  companion object {
+    private const val WAVE_FRAME_DELAY_MS = 140L
   }
 }

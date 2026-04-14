@@ -6,43 +6,67 @@ enum PlynCompanionSessionDemandAction: String {
   case stop
 }
 
+enum PlynCompanionSessionActivationSource: String {
+  case automatic
+  case manual
+}
+
 enum PlynCompanionSessionDemand {
-  private static let recoveryLaunchWindow: TimeInterval = 6.0
+  struct Context: Equatable {
+    let isKeyboardVisible: Bool
+    let isAppBackgrounded: Bool
+    let isSessionActive: Bool
+    let hasAPIKey: Bool
+    let activationSource: PlynCompanionSessionActivationSource?
+  }
+
+  static func shouldReevaluate(
+    previousContext: Context?,
+    currentContext: Context,
+    forceEvaluation: Bool = false
+  ) -> Bool {
+    guard !forceEvaluation else {
+      return true
+    }
+
+    return previousContext != currentContext
+  }
 
   static func actionForKeyboardVisibility(
     isKeyboardVisible: Bool,
     isAppBackgrounded: Bool,
     isSessionActive: Bool,
     hasAPIKey: Bool,
+    activationSource: PlynCompanionSessionActivationSource? = nil,
     recoveryAttemptTimestamp: Date? = nil,
     now: Date = Date()
   ) -> PlynCompanionSessionDemandAction {
     if isKeyboardVisible {
-      return hasAPIKey && !isSessionActive ? .start : .none
+      return isAppBackgrounded && hasAPIKey && !isSessionActive ? .start : .none
     }
 
-    if let recoveryAttemptTimestamp {
-      let recoveryAge = now.timeIntervalSince(recoveryAttemptTimestamp)
-      if recoveryAge >= 0 && recoveryAge <= recoveryLaunchWindow {
-        return .none
-      }
+    if !isAppBackgrounded, isSessionActive {
+      return activationSource == .automatic ? .stop : .none
     }
 
-    return isAppBackgrounded && isSessionActive ? .stop : .none
+    return .none
   }
 }
 
 struct PlynSessionRecoveryState {
   private(set) var shouldKeepSessionActive = false
   private(set) var isSuspendedForAppRecording = false
+  private(set) var activationSource: PlynCompanionSessionActivationSource?
 
-  mutating func markSessionRequestedActive() {
+  mutating func markSessionRequestedActive(source: PlynCompanionSessionActivationSource = .automatic) {
     shouldKeepSessionActive = true
+    activationSource = source
   }
 
   mutating func markSessionStopped() {
     shouldKeepSessionActive = false
     isSuspendedForAppRecording = false
+    activationSource = nil
   }
 
   mutating func markSuspendedForAppRecording() {

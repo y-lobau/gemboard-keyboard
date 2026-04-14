@@ -17,6 +17,11 @@ class GeminiTranscriptionClient {
     val isFinal: Boolean,
   )
 
+  data class TranscriptionResult(
+    val transcript: String,
+    val usageSummary: PlynTokenUsageSummary?,
+  )
+
   private val userInstruction =
     "Transcribe this audio as Belarusian dictation. Return only Belarusian transcript text."
 
@@ -25,7 +30,7 @@ class GeminiTranscriptionClient {
     apiKey: String,
     audioFile: File,
     onSnapshot: (TranscriptSnapshot) -> Unit,
-  ): String {
+  ): TranscriptionResult {
     val model = GeminiRuntimeConfig.model(context)
       ?: throw IllegalStateException("Адкрыйце Plyń, каб атрымаць канфігурацыю дыктоўкі з Firebase.")
     val systemInstruction = GeminiRuntimeConfig.systemPrompt(context)
@@ -74,6 +79,7 @@ class GeminiTranscriptionClient {
 
     var transcript = ""
     var revision = 0
+    var latestUsageSummary: PlynTokenUsageSummary? = null
 
     stream.use { input ->
       BufferedReader(InputStreamReader(input)).use { reader ->
@@ -83,10 +89,17 @@ class GeminiTranscriptionClient {
           val line = reader.readLine() ?: break
 
           if (line.isBlank()) {
-            val chunkText = parseEventChunk(eventLines)
+            val eventPayload = parseEventPayload(eventLines)
             eventLines.clear()
 
-            if (chunkText.isNullOrEmpty()) {
+            if (eventPayload.isNullOrEmpty()) {
+              continue
+            }
+
+            latestUsageSummary = PlynTokenUsageSummary.fromStreamPayload(eventPayload) ?: latestUsageSummary
+            val chunkText = extractTranscriptFromStreamPayload(eventPayload)
+
+            if (chunkText.isEmpty()) {
               continue
             }
 
@@ -101,11 +114,16 @@ class GeminiTranscriptionClient {
           }
         }
 
-        val trailingChunk = parseEventChunk(eventLines)
-        if (!trailingChunk.isNullOrEmpty()) {
-          transcript = TranscriptTextFormatter.mergeStreamTranscript(transcript, trailingChunk)
-          revision += 1
-          onSnapshot(TranscriptSnapshot(revision = revision, text = transcript.trim(), isFinal = false))
+        val trailingPayload = parseEventPayload(eventLines)
+        if (!trailingPayload.isNullOrEmpty()) {
+          latestUsageSummary = PlynTokenUsageSummary.fromStreamPayload(trailingPayload) ?: latestUsageSummary
+          val trailingChunk = extractTranscriptFromStreamPayload(trailingPayload)
+
+          if (!trailingChunk.isNullOrEmpty()) {
+            transcript = TranscriptTextFormatter.mergeStreamTranscript(transcript, trailingChunk)
+            revision += 1
+            onSnapshot(TranscriptSnapshot(revision = revision, text = transcript.trim(), isFinal = false))
+          }
         }
       }
     }
@@ -119,10 +137,10 @@ class GeminiTranscriptionClient {
       ),
     )
 
-    return finalTranscript
+    return TranscriptionResult(transcript = finalTranscript, usageSummary = latestUsageSummary)
   }
 
-  private fun parseEventChunk(eventLines: List<String>): String? {
+  private fun parseEventPayload(eventLines: List<String>): String? {
     if (eventLines.isEmpty()) {
       return null
     }
@@ -132,15 +150,44 @@ class GeminiTranscriptionClient {
       return null
     }
 
-    val response = JSONObject(eventPayload)
-    val candidates = response.optJSONArray("candidates") ?: return null
-    if (candidates.length() == 0) {
-      return null
+    return eventPayload
+  }
+
+  private fun extractTranscriptFromStreamPayload(payload: String): String {
+    val normalizedPayload = payload.trim()
+    if (normalizedPayload.isEmpty() || normalizedPayload == "[DONE]") {
+      return ""
     }
 
-    val parts = candidates.getJSONObject(0)
-      .optJSONObject("content")
-      ?.optJSONArray("parts") ?: return null
+    return try {
+      if (normalizedPayload.startsWith("[")) {
+        val chunks = JSONArray(normalizedPayload)
+
+        for (index in 0 until chunks.length()) {
+          val transcript = extractTranscriptFromJson(chunks.optJSONObject(index))
+          if (transcript.isNotEmpty()) {
+            return transcript
+          }
+        }
+
+        ""
+      } else {
+        extractTranscriptFromJson(JSONObject(normalizedPayload))
+      }
+    } catch (_: Exception) {
+      ""
+    }
+  }
+
+  private fun extractTranscriptFromJson(response: JSONObject?): String {
+    val candidates = response?.optJSONArray("candidates") ?: return ""
+    if (candidates.length() == 0) {
+      return ""
+    }
+
+    val parts = candidates.optJSONObject(0)
+      ?.optJSONObject("content")
+      ?.optJSONArray("parts") ?: return ""
 
     return TranscriptTextFormatter.joinParts(parts)
   }

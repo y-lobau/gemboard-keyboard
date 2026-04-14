@@ -11,7 +11,7 @@ import com.facebook.react.bridge.WritableNativeMap
 class PlynConfigModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
-  override fun getName(): String = "PlyńConfig"
+  override fun getName(): String = "PlynConfig"
 
   @ReactMethod
   fun getStatus(promise: Promise) {
@@ -67,6 +67,17 @@ class PlynConfigModule(private val reactContext: ReactApplicationContext) :
     }
 
     editor.apply()
+    promise.resolve(null)
+  }
+
+  @ReactMethod
+  fun getTokenUsageSummary(promise: Promise) {
+    promise.resolve(PlynTokenUsageStore.get(reactContext).toReactMap())
+  }
+
+  @ReactMethod
+  fun resetTokenUsageSummary(promise: Promise) {
+    PlynTokenUsageStore.reset(reactContext)
     promise.resolve(null)
   }
 }

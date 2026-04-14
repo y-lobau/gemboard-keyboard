@@ -207,6 +207,7 @@ beforeEach(() => {
   delete NativeModules.PlyńAppConfig;
   delete NativeModules.GemboardConfig;
   NativeModules.PlyńSession = sessionModule;
+  NativeModules.PlynSession = sessionModule;
   jest.clearAllMocks();
   configModule.getStatus.mockResolvedValue({
     hasApiKey: false,
@@ -316,6 +317,32 @@ beforeEach(() => {
   requestPermissionSpy = jest
     .spyOn(PermissionsAndroid, 'request')
     .mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
+});
+
+test('uses the ascii iOS session bridge when the accented native module is unavailable', async () => {
+  Platform.OS = 'ios';
+  delete NativeModules.PlyńSession;
+  NativeModules.PlynSession = sessionModule;
+
+  let tree: ReactTestRenderer.ReactTestRenderer;
+
+  configModule.getStatus.mockResolvedValue({
+    hasApiKey: true,
+    sessionActive: false,
+    platformMode: 'ios-keyboard-extension',
+  });
+
+  await ReactTestRenderer.act(async () => {
+    tree = ReactTestRenderer.create(<App />);
+  });
+
+  const sessionToggleButton = findByTestID(tree!, 'session-toggle-button');
+
+  await ReactTestRenderer.act(async () => {
+    sessionToggleButton.props.onPress();
+  });
+
+  expect(sessionModule.startSession).toHaveBeenCalledTimes(1);
 });
 
 afterEach(() => {
@@ -1055,14 +1082,13 @@ test('restores persisted section expansion state on relaunch', async () => {
   expect(findByTestID(tree!, 'token-summary-content')).toBeTruthy();
 });
 
-test('starts the iPhone companion session automatically when a saved key exists', async () => {
+test('keeps the iPhone companion session inactive while the app is foregrounded even when a saved key exists', async () => {
   Platform.OS = 'ios';
   configModule.getStatus.mockResolvedValueOnce({
     hasApiKey: true,
     platformMode: 'ios-keyboard-extension',
   });
   sessionModule.getStatus.mockResolvedValueOnce({ isActive: false });
-  sessionModule.startSession.mockResolvedValueOnce({ isActive: true });
 
   let tree: ReactTestRenderer.ReactTestRenderer;
 
@@ -1070,13 +1096,11 @@ test('starts the iPhone companion session automatically when a saved key exists'
     tree = ReactTestRenderer.create(<App />);
   });
 
-  expect(sessionModule.startSession).toHaveBeenCalledTimes(1);
+  expect(sessionModule.startSession).not.toHaveBeenCalled();
   expect(findByTestID(tree!, 'session-status-label')).toBeTruthy();
-  expect(mockTrackEvent).toHaveBeenCalledWith('companion_session_start', {
-    platform: 'ios',
-    source: 'auto_start',
-    result: 'success',
-  });
+  expect(findByTestID(tree!, 'session-status-label').props.children).toBe(
+    'Кампаньён неактыўны',
+  );
 });
 
 test('opens the API key help link from the setup card', async () => {
@@ -1156,7 +1180,7 @@ test('refreshes the saved iOS state when native bridges appear after the first r
   }
 });
 
-test('retries the iPhone companion session when opened from the session deep link', async () => {
+test('keeps the iPhone companion session inactive when opened from the session deep link', async () => {
   Platform.OS = 'ios';
   configModule.getStatus.mockResolvedValueOnce({
     hasApiKey: true,
@@ -1174,13 +1198,5 @@ test('retries the iPhone companion session when opened from the session deep lin
     urlHandler?.({ url: 'plyn://session' });
   });
 
-  expect(sessionModule.startSession).toHaveBeenCalledTimes(1);
-  expect(mockTrackEvent).toHaveBeenCalledWith('session_recovery_link_opened', {
-    platform: 'ios',
-  });
-  expect(mockTrackEvent).toHaveBeenCalledWith('companion_session_start', {
-    platform: 'ios',
-    source: 'deep_link_retry',
-    result: 'success',
-  });
+  expect(sessionModule.startSession).not.toHaveBeenCalled();
 });
