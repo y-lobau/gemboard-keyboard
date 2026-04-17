@@ -10,11 +10,14 @@ enum PlynCompanionSessionLiveness {
     recoveryAttemptTimestamp: Date? = nil,
     now: Date = Date()
   ) -> Bool {
-    if isSessionActive,
-       let heartbeatTimestamp,
-       now.timeIntervalSince(heartbeatTimestamp) <= handoffWindow
-    {
-      return true
+    if isSessionActive {
+      guard let heartbeatTimestamp else {
+        return true
+      }
+
+      if now.timeIntervalSince(heartbeatTimestamp) <= handoffWindow {
+        return true
+      }
     }
 
     guard let recoveryAttemptTimestamp else {

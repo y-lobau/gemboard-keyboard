@@ -24,18 +24,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ]
   }
 
+  private func startCompanionSessionIfNeeded() {
+    guard PlynSharedStore.hasApiKey() else {
+      return
+    }
+
+    let status = PlyńSessionManager.shared.getStatus()
+    guard (status["isActive"] as? Bool) != true else {
+      PlynSharedStore.refreshSessionHeartbeat()
+      NSLog("[AppDelegate] refreshed companion heartbeat during app lifecycle")
+      return
+    }
+
+    do {
+      _ = try PlyńSessionManager.shared.startSession()
+      NSLog("[AppDelegate] companion session started during app lifecycle")
+    } catch {
+      NSLog("[AppDelegate] failed to start companion session: \(error.localizedDescription)")
+    }
+  }
+
   func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
-    PlynSharedStore.appendCompanionDebugLog("application didFinishLaunching")
     if FirebaseApp.app() == nil {
       FirebaseApp.configure()
-      PlynSharedStore.appendCompanionDebugLog("firebase configured during launch")
     }
 
     PlyńSessionManager.shared.configure()
-    PlynSharedStore.appendCompanionDebugLog("session manager configured during launch")
+    startCompanionSessionIfNeeded()
 
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
@@ -57,13 +75,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   }
 
   func applicationDidBecomeActive(_ application: UIApplication) {
-    PlynSharedStore.appendCompanionDebugLog("applicationDidBecomeActive")
+    startCompanionSessionIfNeeded()
   }
 
   func applicationWillEnterForeground(_ application: UIApplication) {
-    PlynSharedStore.appendCompanionDebugLog("applicationWillEnterForeground")
-    PlyńSessionManager.shared.pauseSessionUntilKeyboardVisible()
-    PlynSharedStore.appendCompanionDebugLog("paused companion session while app is foregrounded")
+    startCompanionSessionIfNeeded()
   }
 
   func applicationWillTerminate(_ application: UIApplication) {
@@ -75,14 +91,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    PlynSharedStore.appendCompanionDebugLog("application open url=\(url.absoluteString)")
-    if PlynCompanionLaunchURL.shouldRestoreSession(for: url) {
-      PlynSharedStore.markSessionRecoveryAttempt()
-      PlynSharedStore.appendCompanionDebugLog("handling session recovery deep link while keeping foreground audio inactive")
+    if url.scheme == "plyn", url.host == "session" {
+      startCompanionSessionIfNeeded()
     }
 
-    let handledByReact = RCTLinkingManager.application(app, open: url, options: options)
-    return PlynCompanionLaunchURL.isCompanionURL(url) || handledByReact
+    return RCTLinkingManager.application(app, open: url, options: options)
   }
 }
 

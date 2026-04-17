@@ -555,9 +555,12 @@ function App({
           ? status.platformMode
           : initialPlatformMode;
         const currentSession = await syncSessionState({
+          hasApiKey: resolvedHasApiKey,
           initialSessionActive:
             resolvedSessionActive ||
             (!hasSessionModule && initialSessionActive),
+          canStart: true,
+          statusMessagePrefix: null,
           sessionModule,
         });
 
@@ -906,21 +909,26 @@ function App({
       setSessionBusy(true);
 
       try {
-        const nextStatus = await sessionModule.getStatus();
+        const nextStatus = await sessionModule.startSession();
 
         if (!active) {
           return;
         }
 
         setSessionActive(nextStatus.isActive);
-        setStatusKind(nextStatus.isActive ? 'success' : 'neutral');
+        setStatusKind(nextStatus.isActive ? 'success' : 'error');
         setStatusMessage(
           nextStatus.isActive
             ? 'Кампаньён актыўны. Вярніцеся да клавіятуры.'
-            : 'Пакуль праграма адкрытая, кампаньён спынены. Вярніцеся да клавіятуры, каб аднавіць яго.',
+            : 'Не ўдалося аднавіць кампаньён.',
         );
         await trackEvent('session_recovery_link_opened', {
           platform: 'ios',
+        });
+        await trackEvent('companion_session_start', {
+          platform: 'ios',
+          source: 'deep_link_retry',
+          result: nextStatus.isActive ? 'success' : 'error',
         });
       } catch (error) {
         if (active) {
@@ -930,6 +938,11 @@ function App({
 
         await trackEvent('session_recovery_link_opened', {
           platform: 'ios',
+        });
+        await trackEvent('companion_session_start', {
+          platform: 'ios',
+          source: 'deep_link_retry',
+          result: 'error',
         });
       } finally {
         if (active) {
@@ -1690,10 +1703,16 @@ function renderDebugFact(label: string, value: string) {
 }
 
 async function syncSessionState({
+  hasApiKey,
   initialSessionActive,
+  canStart,
+  statusMessagePrefix,
   sessionModule,
 }: {
+  hasApiKey: boolean;
   initialSessionActive: boolean;
+  canStart: boolean;
+  statusMessagePrefix: string | null;
   sessionModule: SessionModule;
 }) {
   if (Platform.OS !== 'ios') {
@@ -1705,7 +1724,18 @@ async function syncSessionState({
   }
 
   const sessionStatus = await sessionModule.getStatus();
-  return sessionStatus.isActive;
+  if (!hasApiKey || sessionStatus.isActive || !canStart) {
+    return sessionStatus.isActive;
+  }
+
+  const nextStatus = await sessionModule.startSession();
+  await trackEvent('companion_session_start', {
+    platform: 'ios',
+    source: 'auto_start',
+    result: nextStatus.isActive ? 'success' : 'error',
+  });
+  void statusMessagePrefix;
+  return nextStatus.isActive;
 }
 
 function formatTokenCount(value: number) {

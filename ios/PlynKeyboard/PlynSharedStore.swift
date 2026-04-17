@@ -12,13 +12,9 @@ enum PlynSharedStore {
   }
 
   static let appGroupIdentifier = "group.com.holas.plynkeyboard"
-  static let simulatorSharedDefaultsIdentifier = "simulator.group.com.holas.plynkeyboard"
   static let commandNotificationName = "com.holas.Plyńkeyboard.command"
   static let stateNotificationName = "com.holas.Plyńkeyboard.state"
   private static let missingRuntimeConfigMessage = "Адкрыйце Plyń, каб абнавіць мадэль і інструкцыю дыктоўкі з Firebase."
-  private static let simulatorDefaultsMigrationVersionKey = "simulator_shared_defaults_migration_v1"
-  static let simulatorPersistentDefaultsOverrideEnvironmentKey = "PLYN_SIMULATOR_SHARED_DEFAULTS_ROOT"
-  private static let simulatorPersistentDefaultsFileName = "simulator.group.com.holas.plynkeyboard.persisted.plist"
 
   private static let apiKeyKey = "gemini_api_key"
   private static let geminiModelKey = "gemini_runtime_model"
@@ -36,10 +32,8 @@ enum PlynSharedStore {
   private static let latestTranscriptStateKey = "latest_transcript_state"
   private static let latestTranscriptErrorCodeKey = "latest_transcript_error_code"
   private static let sessionActiveKey = "ios_session_active"
-  private static let sessionValidationOnlyKey = "ios_session_validation_only"
   private static let keyboardVisibleKey = "ios_keyboard_visible"
   private static let sessionHeartbeatUpdatedAtKey = "ios_session_heartbeat_updated_at"
-  private static let sessionRecoveryAttemptUpdatedAtKey = "ios_session_recovery_attempt_updated_at"
   private static let keyboardCommandKey = "ios_keyboard_command"
   private static let keyboardCommandUpdatedAtKey = "ios_keyboard_command_updated_at"
   private static let keyboardStatusKey = "ios_keyboard_status"
@@ -88,32 +82,6 @@ enum PlynSharedStore {
   private static let lastRequestTokenOutputDocumentKey = "gemini_last_request_output_document_tokens"
   private static let defaultKeyboardCommandTimeout: TimeInterval = 2.0
   private static let defaultKeyboardTranscriptionTimeout: TimeInterval = 12.0
-  private static let simulatorPersistentKeys: Set<String> = [
-    apiKeyKey,
-    geminiModelKey,
-    geminiSystemPromptKey,
-    keyboardCommandTimeoutKey,
-    keyboardTranscriptionTimeoutKey,
-    sessionActiveKey,
-    sessionValidationOnlyKey,
-    keyboardVisibleKey,
-    sessionHeartbeatUpdatedAtKey,
-    sessionRecoveryAttemptUpdatedAtKey,
-    keyboardCommandKey,
-    keyboardCommandUpdatedAtKey,
-    keyboardStatusKey,
-    keyboardStatusUpdatedAtKey,
-    keyboardLaunchDebugKey,
-    keyboardDebugLogKey,
-    companionDebugLogKey,
-    latestTranscriptKey,
-    latestTranscriptUpdatedAtKey,
-    latestTranscriptSessionIDKey,
-    latestTranscriptSequenceKey,
-    latestTranscriptIsFinalKey,
-    latestTranscriptStateKey,
-    latestTranscriptErrorCodeKey,
-  ]
 
   enum KeyboardCommand: String {
     case none
@@ -367,159 +335,8 @@ enum PlynSharedStore {
     }
   }
 
-  static var sharedDefaultsIdentifier: String {
-#if targetEnvironment(simulator)
-    simulatorSharedDefaultsIdentifier
-#else
-    appGroupIdentifier
-#endif
-  }
-
-  private static var appGroupDefaults: UserDefaults? {
-    let sharedDefaults = UserDefaults(suiteName: sharedDefaultsIdentifier)
-    restorePersistentSimulatorDefaultsIfNeeded(sharedDefaults)
-    migrateSimulatorDefaultsIfNeeded(sharedDefaults)
-    return sharedDefaults
-  }
-
   private static var defaults: UserDefaults {
-    appGroupDefaults ?? .standard
-  }
-
-  private static var diagnosticFallbackDefaults: UserDefaults {
-    .standard
-  }
-
-  private static func migrateSimulatorDefaultsIfNeeded(_ sharedDefaults: UserDefaults?) {
-#if targetEnvironment(simulator)
-    guard let sharedDefaults else {
-      return
-    }
-
-    if sharedDefaults.bool(forKey: simulatorDefaultsMigrationVersionKey) {
-      return
-    }
-
-    for (key, value) in UserDefaults.standard.dictionaryRepresentation()
-      where sharedDefaults.object(forKey: key) == nil && key != simulatorDefaultsMigrationVersionKey {
-      sharedDefaults.set(value, forKey: key)
-      persistSimulatorValueIfNeeded(value, forKey: key)
-    }
-
-    sharedDefaults.set(true, forKey: simulatorDefaultsMigrationVersionKey)
-    sharedDefaults.synchronize()
-#endif
-  }
-
-  static var simulatorPersistentDefaultsURL: URL {
-#if targetEnvironment(simulator)
-    let environment = ProcessInfo.processInfo.environment
-    if let overrideRootPath = environment[simulatorPersistentDefaultsOverrideEnvironmentKey] {
-      return URL(fileURLWithPath: overrideRootPath, isDirectory: true)
-        .appendingPathComponent(simulatorPersistentDefaultsFileName)
-    }
-
-    if let persistedURL = simulatorPersistentDefaultsURL(homePath: NSHomeDirectory()) {
-      return persistedURL
-    }
-#endif
-
-    return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-      .appendingPathComponent(simulatorPersistentDefaultsFileName)
-  }
-
-  static func simulatorPersistentDefaultsURL(homePath: String) -> URL? {
-#if targetEnvironment(simulator)
-    let simulatorHomeMarkers = [
-      "/data/Containers/Data/Application/",
-      "/data/Containers/Data/PluginKitPlugin/",
-    ]
-
-    for homeMarker in simulatorHomeMarkers {
-      if let containersRange = homePath.range(of: homeMarker) {
-        let simulatorDataRootPath = String(homePath[..<containersRange.lowerBound]) + "/data"
-        return URL(fileURLWithPath: simulatorDataRootPath, isDirectory: true)
-          .appendingPathComponent("Library", isDirectory: true)
-          .appendingPathComponent("Preferences", isDirectory: true)
-          .appendingPathComponent(simulatorPersistentDefaultsFileName)
-      }
-    }
-#endif
-
-    return nil
-  }
-
-  private static func restorePersistentSimulatorDefaultsIfNeeded(_ sharedDefaults: UserDefaults?) {
-#if targetEnvironment(simulator)
-    guard let sharedDefaults else {
-      return
-    }
-
-    guard
-      let persistedValues = NSDictionary(contentsOf: simulatorPersistentDefaultsURL) as? [String: Any],
-      persistedValues.isEmpty == false
-    else {
-      return
-    }
-
-    var restoredKeys: [String] = []
-    for key in simulatorPersistentKeys {
-      if let value = persistedValues[key] {
-        let currentValue = sharedDefaults.object(forKey: key) as AnyObject?
-        let restoredValue = value as AnyObject
-        if currentValue?.isEqual(restoredValue) != true {
-          sharedDefaults.set(value, forKey: key)
-          restoredKeys.append(key)
-        }
-      } else if sharedDefaults.object(forKey: key) != nil {
-        sharedDefaults.removeObject(forKey: key)
-        restoredKeys.append(key)
-      }
-    }
-
-    if restoredKeys.isEmpty == false {
-      sharedDefaults.synchronize()
-      log("restored simulator persisted defaults keys=\(restoredKeys.sorted())")
-    }
-#endif
-  }
-
-  private static func persistSimulatorValueIfNeeded(_ value: Any?, forKey key: String) {
-#if targetEnvironment(simulator)
-    guard simulatorPersistentKeys.contains(key) else {
-      return
-    }
-
-    let persistedDefaultsURL = simulatorPersistentDefaultsURL
-    let persistedDefaultsDirectoryURL = persistedDefaultsURL.deletingLastPathComponent()
-    try? FileManager.default.createDirectory(at: persistedDefaultsDirectoryURL, withIntermediateDirectories: true)
-
-    var persistedValues = (NSDictionary(contentsOf: persistedDefaultsURL) as? [String: Any]) ?? [:]
-    if let value {
-      persistedValues[key] = value
-    } else {
-      persistedValues.removeValue(forKey: key)
-    }
-
-    (persistedValues as NSDictionary).write(to: persistedDefaultsURL, atomically: true)
-#endif
-  }
-
-  private static func persistSimulatorValuesIfNeeded(_ values: [String: Any?]) {
-#if targetEnvironment(simulator)
-    values.forEach { key, value in
-      persistSimulatorValueIfNeeded(value, forKey: key)
-    }
-#endif
-  }
-
-  private static func mirrorValueToFallbackDefaults(_ value: Any?, forKey key: String) {
-    if let value {
-      diagnosticFallbackDefaults.set(value, forKey: key)
-    } else {
-      diagnosticFallbackDefaults.removeObject(forKey: key)
-    }
-    diagnosticFallbackDefaults.synchronize()
+    UserDefaults(suiteName: appGroupIdentifier) ?? .standard
   }
 
   private static func log(_ message: String) {
@@ -535,7 +352,6 @@ enum PlynSharedStore {
     let normalizedModel = normalizeGeminiModel(model)
     defaults.set(normalizedModel, forKey: geminiModelKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(normalizedModel, forKey: geminiModelKey)
   }
 
   static func normalizeGeminiModel(_ rawModel: String?) -> String {
@@ -551,7 +367,6 @@ enum PlynSharedStore {
     let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     defaults.set(trimmedPrompt, forKey: geminiSystemPromptKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(trimmedPrompt, forKey: geminiSystemPromptKey)
   }
 
   static func keyboardCommandTimeout() -> TimeInterval {
@@ -565,7 +380,6 @@ enum PlynSharedStore {
     let resolvedTimeout = validKeyboardTimeout(timeout) ?? defaultKeyboardCommandTimeout
     defaults.set(resolvedTimeout, forKey: keyboardCommandTimeoutKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(resolvedTimeout, forKey: keyboardCommandTimeoutKey)
   }
 
   static func keyboardTranscriptionTimeout() -> TimeInterval {
@@ -579,7 +393,6 @@ enum PlynSharedStore {
     let resolvedTimeout = validKeyboardTimeout(timeout) ?? defaultKeyboardTranscriptionTimeout
     defaults.set(resolvedTimeout, forKey: keyboardTranscriptionTimeoutKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(resolvedTimeout, forKey: keyboardTranscriptionTimeoutKey)
   }
 
   static func geminiEndpointURL(apiKey: String) -> URL? {
@@ -619,8 +432,7 @@ enum PlynSharedStore {
     let trimmedApiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     defaults.set(trimmedApiKey, forKey: apiKeyKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(trimmedApiKey, forKey: apiKeyKey)
-    log("saveApiKey length=\(trimmedApiKey.count) suite=\(sharedDefaultsIdentifier)")
+    log("saveApiKey length=\(trimmedApiKey.count) suite=\(appGroupIdentifier)")
   }
 
   static func sectionExpansionState() -> [String: Bool] {
@@ -665,42 +477,15 @@ enum PlynSharedStore {
     defaults.bool(forKey: sessionActiveKey)
   }
 
-  static func isValidationOnlySession() -> Bool {
-    defaults.bool(forKey: sessionValidationOnlyKey)
-  }
-
   static func saveSessionActive(_ active: Bool) {
-    let heartbeatTimestamp = active ? Date().timeIntervalSince1970 : nil
     defaults.set(active, forKey: sessionActiveKey)
-    if !active {
-      defaults.set(false, forKey: sessionValidationOnlyKey)
-    }
     if active {
-      defaults.set(heartbeatTimestamp, forKey: sessionHeartbeatUpdatedAtKey)
+      refreshSessionHeartbeat()
     } else {
       defaults.removeObject(forKey: sessionHeartbeatUpdatedAtKey)
     }
     saveKeyboardStatus(active ? .ready : .inactive)
     defaults.synchronize()
-    var persistedValues: [String: Any?] = [
-      sessionActiveKey: active,
-      sessionHeartbeatUpdatedAtKey: heartbeatTimestamp,
-    ]
-
-    if !active {
-      persistedValues[sessionValidationOnlyKey] = false
-    }
-
-    persistSimulatorValuesIfNeeded(persistedValues)
-    postStateNotification()
-  }
-
-  static func saveValidationOnlySession(_ validationOnly: Bool) {
-    defaults.set(validationOnly, forKey: sessionValidationOnlyKey)
-    defaults.synchronize()
-    persistSimulatorValueIfNeeded(validationOnly, forKey: sessionValidationOnlyKey)
-    mirrorValueToFallbackDefaults(validationOnly, forKey: sessionValidationOnlyKey)
-    postStateNotification()
   }
 
   static func isKeyboardVisible() -> Bool {
@@ -710,32 +495,16 @@ enum PlynSharedStore {
   static func saveKeyboardVisible(_ visible: Bool) {
     defaults.set(visible, forKey: keyboardVisibleKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(visible, forKey: keyboardVisibleKey)
-    mirrorValueToFallbackDefaults(visible, forKey: keyboardVisibleKey)
     postStateNotification()
   }
 
   static func refreshSessionHeartbeat() {
-    let timestamp = Date().timeIntervalSince1970
-    defaults.set(timestamp, forKey: sessionHeartbeatUpdatedAtKey)
+    defaults.set(Date().timeIntervalSince1970, forKey: sessionHeartbeatUpdatedAtKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(timestamp, forKey: sessionHeartbeatUpdatedAtKey)
-  }
-
-  static func markSessionRecoveryAttempt() {
-    let timestamp = Date().timeIntervalSince1970
-    defaults.set(timestamp, forKey: sessionRecoveryAttemptUpdatedAtKey)
-    defaults.synchronize()
-    persistSimulatorValueIfNeeded(timestamp, forKey: sessionRecoveryAttemptUpdatedAtKey)
-    postStateNotification()
   }
 
   static func sessionHeartbeatTimestamp() -> Date? {
     date(forKey: sessionHeartbeatUpdatedAtKey)
-  }
-
-  static func sessionRecoveryAttemptTimestamp() -> Date? {
-    date(forKey: sessionRecoveryAttemptUpdatedAtKey)
   }
 
   static func saveKeyboardLaunchDebug(_ message: String) {
@@ -749,13 +518,6 @@ enum PlynSharedStore {
     defaults.set(entry, forKey: keyboardLaunchDebugKey)
     appendDebugLog(entry, forKey: keyboardDebugLogKey)
     defaults.synchronize()
-    persistSimulatorValuesIfNeeded([
-      keyboardLaunchDebugKey: entry,
-      keyboardDebugLogKey: defaults.string(forKey: keyboardDebugLogKey),
-    ])
-    mirrorValueToFallbackDefaults(entry, forKey: keyboardLaunchDebugKey)
-    appendDebugLog(entry, forKey: keyboardDebugLogKey, defaults: diagnosticFallbackDefaults)
-    diagnosticFallbackDefaults.synchronize()
   }
 
   static func keyboardDebugLog() -> String {
@@ -772,7 +534,6 @@ enum PlynSharedStore {
     let entry = "[\(timestamp)] \(trimmedMessage)"
     appendDebugLog(entry, forKey: companionDebugLogKey)
     defaults.synchronize()
-    persistSimulatorValueIfNeeded(defaults.string(forKey: companionDebugLogKey), forKey: companionDebugLogKey)
   }
 
   static func companionDebugLog() -> String {
@@ -783,25 +544,14 @@ enum PlynSharedStore {
     defaults.removeObject(forKey: keyboardLaunchDebugKey)
     defaults.removeObject(forKey: keyboardDebugLogKey)
     defaults.removeObject(forKey: companionDebugLogKey)
-    defaults.removeObject(forKey: sessionRecoveryAttemptUpdatedAtKey)
     defaults.removeObject(forKey: sessionHeartbeatUpdatedAtKey)
-    defaults.removeObject(forKey: sessionValidationOnlyKey)
     defaults.synchronize()
-    persistSimulatorValuesIfNeeded([
-      keyboardLaunchDebugKey: nil,
-      keyboardDebugLogKey: nil,
-      companionDebugLogKey: nil,
-      sessionRecoveryAttemptUpdatedAtKey: nil,
-      sessionHeartbeatUpdatedAtKey: nil,
-      sessionValidationOnlyKey: nil,
-    ])
   }
 
   static func debugSnapshot() -> [String: Any] {
     [
-      "usesAppGroupDefaults": appGroupDefaults != nil,
+      "usesAppGroupDefaults": UserDefaults(suiteName: appGroupIdentifier) != nil,
       "appGroupIdentifier": appGroupIdentifier,
-      "sharedDefaultsIdentifier": sharedDefaultsIdentifier,
       "hasApiKey": hasApiKey(),
       "keyboardVisible": isKeyboardVisible(),
       "keyboardStatus": keyboardStatus().rawValue,
@@ -811,9 +561,7 @@ enum PlynSharedStore {
       "keyboardLaunchDebug": defaults.string(forKey: keyboardLaunchDebugKey) ?? "",
       "keyboardDebugLog": keyboardDebugLog(),
       "sessionActive": isSessionActive(),
-      "sessionValidationOnly": isValidationOnlySession(),
       "sessionHeartbeatUpdatedAt": bridgeValue(dateTimestamp(forKey: sessionHeartbeatUpdatedAtKey)),
-      "sessionRecoveryAttemptUpdatedAt": bridgeValue(dateTimestamp(forKey: sessionRecoveryAttemptUpdatedAtKey)),
       "companionDebugLog": companionDebugLog(),
     ]
   }
@@ -831,12 +579,6 @@ enum PlynSharedStore {
     defaults.set(command.rawValue, forKey: keyboardCommandKey)
     defaults.set(timestamp, forKey: keyboardCommandUpdatedAtKey)
     defaults.synchronize()
-    persistSimulatorValuesIfNeeded([
-      keyboardCommandKey: command.rawValue,
-      keyboardCommandUpdatedAtKey: timestamp,
-    ])
-    mirrorValueToFallbackDefaults(command.rawValue, forKey: keyboardCommandKey)
-    mirrorValueToFallbackDefaults(timestamp, forKey: keyboardCommandUpdatedAtKey)
     postCommandNotification()
   }
 
@@ -857,12 +599,6 @@ enum PlynSharedStore {
     defaults.set(status.rawValue, forKey: keyboardStatusKey)
     defaults.set(timestamp, forKey: keyboardStatusUpdatedAtKey)
     defaults.synchronize()
-    persistSimulatorValuesIfNeeded([
-      keyboardStatusKey: status.rawValue,
-      keyboardStatusUpdatedAtKey: timestamp,
-    ])
-    mirrorValueToFallbackDefaults(status.rawValue, forKey: keyboardStatusKey)
-    mirrorValueToFallbackDefaults(timestamp, forKey: keyboardStatusUpdatedAtKey)
     postStateNotification()
   }
 
@@ -916,15 +652,6 @@ enum PlynSharedStore {
     defaults.set(state.rawValue, forKey: latestTranscriptStateKey)
     defaults.set(errorCode, forKey: latestTranscriptErrorCodeKey)
     defaults.synchronize()
-    persistSimulatorValuesIfNeeded([
-      latestTranscriptKey: sanitizedTranscript,
-      latestTranscriptUpdatedAtKey: updatedAtTimestamp,
-      latestTranscriptSessionIDKey: sessionID,
-      latestTranscriptSequenceKey: max(sequence, 1),
-      latestTranscriptIsFinalKey: isFinal,
-      latestTranscriptStateKey: state.rawValue,
-      latestTranscriptErrorCodeKey: errorCode,
-    ])
     postStateNotification()
   }
 
@@ -977,15 +704,6 @@ enum PlynSharedStore {
     defaults.removeObject(forKey: latestTranscriptStateKey)
     defaults.removeObject(forKey: latestTranscriptErrorCodeKey)
     defaults.synchronize()
-    persistSimulatorValuesIfNeeded([
-      latestTranscriptKey: nil,
-      latestTranscriptUpdatedAtKey: nil,
-      latestTranscriptSessionIDKey: nil,
-      latestTranscriptSequenceKey: nil,
-      latestTranscriptIsFinalKey: nil,
-      latestTranscriptStateKey: nil,
-      latestTranscriptErrorCodeKey: nil,
-    ])
     postStateNotification()
   }
 

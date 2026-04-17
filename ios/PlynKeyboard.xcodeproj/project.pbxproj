@@ -26,14 +26,6 @@
 		1A2B3C4D5E6F700100000029 /* PlynKeyboardEraseBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F70010000002A /* PlynKeyboardEraseBehaviorTests.swift */; };
 		1A2B3C4D5E6F70010000002B /* PlynKeyboardEraseBehavior.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000028 /* PlynKeyboardEraseBehavior.swift */; };
 		1A2B3C4D5E6F70010000002C /* PlynSessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F70010000002D /* PlynSessionManagerTests.swift */; };
-		1A2B3C4D5E6F700100000030 /* PlynCompanionLaunchURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000031 /* PlynCompanionLaunchURL.swift */; };
-		1A2B3C4D5E6F700100000032 /* PlynCompanionLaunchURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000031 /* PlynCompanionLaunchURL.swift */; };
-		1A2B3C4D5E6F700100000033 /* PlynCompanionLaunchURLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000034 /* PlynCompanionLaunchURLTests.swift */; };
-		1A2B3C4D5E6F700100000035 /* PlynKeyboardMicPressDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000036 /* PlynKeyboardMicPressDecision.swift */; };
-		1A2B3C4D5E6F700100000037 /* PlynKeyboardMicPressDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000036 /* PlynKeyboardMicPressDecision.swift */; };
-		1A2B3C4D5E6F700100000038 /* PlynKeyboardMicPressDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000039 /* PlynKeyboardMicPressDecisionTests.swift */; };
-		1A2B3C4D5E6F70010000003A /* PlynKeyboardMicPressDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000036 /* PlynKeyboardMicPressDecision.swift */; };
-		1A2B3C4D5E6F700100000040 /* PlynSharedStoreDefaultsSuiteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000041 /* PlynSharedStoreDefaultsSuiteTests.swift */; };
 		2A5A4E9D7B1C4D2E8F901111 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2A5A4E9D7B1C4D2E8F901112 /* GoogleService-Info.plist */; };
 		3B4A1F0E2F8A000100000001 /* PlynConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B4A1F0E2F8A000100000002 /* PlynConfig.swift */; };
 		3B4A1F0E2F8A000100000003 /* PlynSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B4A1F0E2F8A000100000004 /* PlynSpeech.swift */; };
@@ -101,11 +93,6 @@
 		1A2B3C4D5E6F700100000028 /* PlynKeyboardEraseBehavior.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PlynKeyboardEraseBehavior.swift; path = PlynKeyboard/PlynKeyboardEraseBehavior.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F70010000002A /* PlynKeyboardEraseBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlynKeyboardEraseBehaviorTests.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F70010000002D /* PlynSessionManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlynSessionManagerTests.swift; sourceTree = "<group>"; };
-		1A2B3C4D5E6F700100000031 /* PlynCompanionLaunchURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PlynCompanionLaunchURL.swift; path = PlynKeyboard/PlynCompanionLaunchURL.swift; sourceTree = "<group>"; };
-		1A2B3C4D5E6F700100000034 /* PlynCompanionLaunchURLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlynCompanionLaunchURLTests.swift; sourceTree = "<group>"; };
-		1A2B3C4D5E6F700100000036 /* PlynKeyboardMicPressDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PlynKeyboardMicPressDecision.swift; path = PlynKeyboard/PlynKeyboardMicPressDecision.swift; sourceTree = "<group>"; };
-		1A2B3C4D5E6F700100000039 /* PlynKeyboardMicPressDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlynKeyboardMicPressDecisionTests.swift; sourceTree = "<group>"; };
-		1A2B3C4D5E6F700100000041 /* PlynSharedStoreDefaultsSuiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlynSharedStoreDefaultsSuiteTests.swift; sourceTree = "<group>"; };
 		2A5A4E9D7B1C4D2E8F901112 /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "PlynKeyboard/GoogleService-Info.plist"; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-PlynKeyboard.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PlynKeyboard.debug.xcconfig"; path = "Target Support Files/Pods-PlynKeyboard/Pods-PlynKeyboard.debug.xcconfig"; sourceTree = "<group>"; };
 		3B4A1F0E2F8A000100000002 /* PlynConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PlynConfig.swift; path = PlynKeyboard/PlynConfig.swift; sourceTree = "<group>"; };
@@ -160,8 +147,6 @@
 				2A5A4E9D7B1C4D2E8F901112 /* GoogleService-Info.plist */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				1A2B3C4D5E6F70010000001B /* PlynAudioInputFormat.swift */,
-				1A2B3C4D5E6F700100000031 /* PlynCompanionLaunchURL.swift */,
-				1A2B3C4D5E6F700100000036 /* PlynKeyboardMicPressDecision.swift */,
 				3B4A1F0E2F8A000100000002 /* PlynConfig.swift */,
 				3B4A1F0E2F8A000100000006 /* PlynConfigBridge.m */,
 				1A2B3C4D5E6F70010000000F /* PlynE2EOverrides.swift */,
@@ -186,10 +171,7 @@
 			isa = PBXGroup;
 			children = (
 				1A2B3C4D5E6F700100000002 /* PlynKeyboardE2ETests.swift */,
-				1A2B3C4D5E6F700100000034 /* PlynCompanionLaunchURLTests.swift */,
 				1A2B3C4D5E6F700100000018 /* PlynCompanionSessionLivenessTests.swift */,
-				1A2B3C4D5E6F700100000041 /* PlynSharedStoreDefaultsSuiteTests.swift */,
-				1A2B3C4D5E6F700100000039 /* PlynKeyboardMicPressDecisionTests.swift */,
 				1A2B3C4D5E6F70010000002A /* PlynKeyboardEraseBehaviorTests.swift */,
 				1A2B3C4D5E6F70010000002D /* PlynSessionManagerTests.swift */,
 				1A2B3C4D5E6F700100000013 /* PlynSessionRecoveryStateTests.swift */,
@@ -541,9 +523,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1A2B3C4D5E6F70010000001C /* PlynAudioInputFormat.swift in Sources */,
-				1A2B3C4D5E6F700100000032 /* PlynCompanionLaunchURL.swift in Sources */,
 				1A2B3C4D5E6F70010000000E /* PlynE2EOverrides.swift in Sources */,
-				1A2B3C4D5E6F700100000037 /* PlynKeyboardMicPressDecision.swift in Sources */,
 				1A2B3C4D5E6F700100000014 /* PlynSessionRecoveryState.swift in Sources */,
 				3B4A1F0E2F8A000100000001 /* PlynConfig.swift in Sources */,
 				3B4A1F0E2F8A000100000005 /* PlynConfigBridge.m in Sources */,
@@ -564,13 +544,8 @@
 			files = (
 				1A2B3C4D5E6F700100000001 /* PlynKeyboardE2ETests.swift in Sources */,
 				1A2B3C4D5E6F70010000001A /* PlynAudioInputFormat.swift in Sources */,
-				1A2B3C4D5E6F700100000030 /* PlynCompanionLaunchURL.swift in Sources */,
 				1A2B3C4D5E6F700100000015 /* PlynCompanionSessionLiveness.swift in Sources */,
-				1A2B3C4D5E6F700100000033 /* PlynCompanionLaunchURLTests.swift in Sources */,
-				1A2B3C4D5E6F700100000035 /* PlynKeyboardMicPressDecision.swift in Sources */,
-				1A2B3C4D5E6F700100000038 /* PlynKeyboardMicPressDecisionTests.swift in Sources */,
 				1A2B3C4D5E6F700100000017 /* PlynCompanionSessionLivenessTests.swift in Sources */,
-				1A2B3C4D5E6F700100000040 /* PlynSharedStoreDefaultsSuiteTests.swift in Sources */,
 				1A2B3C4D5E6F700100000027 /* PlynKeyboardEraseBehavior.swift in Sources */,
 				1A2B3C4D5E6F700100000029 /* PlynKeyboardEraseBehaviorTests.swift in Sources */,
 				1A2B3C4D5E6F70010000002C /* PlynSessionManagerTests.swift in Sources */,
@@ -588,7 +563,6 @@
 			files = (
 				3B4A1F0E2F8A00010000000A /* KeyboardViewController.swift in Sources */,
 				1A2B3C4D5E6F700100000019 /* PlynCompanionSessionLiveness.swift in Sources */,
-				1A2B3C4D5E6F70010000003A /* PlynKeyboardMicPressDecision.swift in Sources */,
 				1A2B3C4D5E6F70010000002B /* PlynKeyboardEraseBehavior.swift in Sources */,
 				3B4A1F0E2F8A00010000000B /* PlynSharedStore.swift in Sources */,
 			);
@@ -619,7 +593,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PlynKeyboard/PlynKeyboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260413051331;
+				CURRENT_PROJECT_VERSION = 20260416043624;
 				DEVELOPMENT_TEAM = ZCY45NFH6D;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = PlynKeyboard/Info.plist;
@@ -659,7 +633,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PlynKeyboard/PlynKeyboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260413051331;
+				CURRENT_PROJECT_VERSION = 20260416043624;
 				DEVELOPMENT_TEAM = ZCY45NFH6D;
 				INFOPLIST_FILE = PlynKeyboard/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Plyń ad Holas";
@@ -692,7 +666,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260413051331;
+				CURRENT_PROJECT_VERSION = 20260416043624;
 				DEVELOPMENT_TEAM = ZCY45NFH6D;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -710,7 +684,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260413051331;
+				CURRENT_PROJECT_VERSION = 20260416043624;
 				DEVELOPMENT_TEAM = ZCY45NFH6D;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -732,7 +706,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PlynKeyboardExtension/PlynKeyboardExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260413051331;
+				CURRENT_PROJECT_VERSION = 20260416043624;
 				DEVELOPMENT_TEAM = ZCY45NFH6D;
 				INFOPLIST_FILE = PlynKeyboardExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -760,7 +734,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = PlynKeyboardExtension/PlynKeyboardExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20260413051331;
+				CURRENT_PROJECT_VERSION = 20260416043624;
 				DEVELOPMENT_TEAM = ZCY45NFH6D;
 				INFOPLIST_FILE = PlynKeyboardExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;

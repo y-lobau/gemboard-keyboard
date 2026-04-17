@@ -16,15 +16,6 @@ final class PlyńSessionManager {
     manager.handleSharedCommandNotification()
   }
 
-  private let stateNotificationCallback: CFNotificationCallback = { _, observer, _, _, _ in
-    guard let observer else {
-      return
-    }
-
-    let manager = Unmanaged<PlyńSessionManager>.fromOpaque(observer).takeUnretainedValue()
-    manager.handleSharedStateNotification()
-  }
-
   private let session = AVAudioSession.sharedInstance()
   private let engine = AVAudioEngine()
   private let workQueue = DispatchQueue(label: "com.holas.Plyńkeyboard.session")
@@ -40,17 +31,13 @@ final class PlyńSessionManager {
   private var audioChunks: [Data] = []
   private var recoveryState = PlynSessionRecoveryState()
   private var sessionSuspendedForAppRecording = false
-  private var simulatorValidationSessionActive = false
   private var commandPollTimer: DispatchSourceTimer?
   private var transcriptionTask: Task<Void, Never>?
-  private var transcriptionBackgroundTaskID: UIBackgroundTaskIdentifier = .invalid
   private var activeTranscriptSessionID: String?
   private var transcriptSnapshotSequence = 0
-  private var lastObservedDemandContext: PlynCompanionSessionDemand.Context?
 
   private func log(_ message: String) {
     NSLog("[PlyńSession] \(message)")
-    PlynSharedStore.appendCompanionDebugLog("session \(message)")
   }
 
   private init() {
@@ -72,92 +59,56 @@ final class PlyńSessionManager {
       nil,
       .deliverImmediately
     )
-    CFNotificationCenterAddObserver(
-      center,
-      Unmanaged.passUnretained(self).toOpaque(),
-      stateNotificationCallback,
-      PlynSharedStore.stateNotificationName as CFString,
-      nil,
-      .deliverImmediately
-    )
 
     configureLifecycleObservers()
     startCommandPolling()
-    log("configure engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording) simulatorValidation=\(simulatorValidationSessionActive)")
+    log("configure engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording)")
     synchronizeSharedSessionState()
   }
 
   func getStatus() -> [String: Any] {
     let isActive = onWorkQueueSync {
-      synchronizeSharedSessionState()
+      recoverSessionIfNeeded(reason: "status_check")
     }
-    log("getStatus isActive=\(isActive) engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording) simulatorValidation=\(simulatorValidationSessionActive)")
+    log("getStatus isActive=\(isActive) engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording)")
     return ["isActive": isActive]
   }
 
-  func startSession(source: PlynCompanionSessionActivationSource = .manual) throws -> [String: Any] {
-    try withSessionActivationBackgroundTask(reason: "start_session") {
-      configure()
-      recoveryState.markSessionRequestedActive(source: source)
+  func startSession() throws -> [String: Any] {
+    configure()
+    recoveryState.markSessionRequestedActive()
 
-      try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetooth, .defaultToSpeaker])
-      try session.setActive(true)
+    try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetooth, .defaultToSpeaker])
+    try session.setActive(true)
 
-      let inputFormat = engine.inputNode.inputFormat(forBus: 0)
-      switch PlynAudioInputFormat.sessionStartMode(
-        sampleRate: inputFormat.sampleRate,
-        channelCount: inputFormat.channelCount
-      ) {
-      case .recording:
-        PlynSharedStore.saveValidationOnlySession(false)
-        break
-      case .validationOnly:
-        simulatorValidationSessionActive = true
-        sampleRate = 16_000
-        PlynSharedStore.saveValidationOnlySession(true)
-        PlynSharedStore.saveSessionActive(true)
-        PlynSharedStore.saveKeyboardCommand(.none)
-        PlynSharedStore.saveKeyboardStatus(.ready)
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
-        log("startSession validationOnly sampleRate=\(inputFormat.sampleRate) channelCount=\(inputFormat.channelCount)")
-        return
-      case .unavailable:
-        simulatorValidationSessionActive = false
-        PlynSharedStore.saveValidationOnlySession(false)
-        PlynSharedStore.saveSessionActive(false)
-        PlynSharedStore.saveKeyboardCommand(.none)
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
-        throw NSError(
-          domain: "PlyńSession",
-          code: 1001,
-          userInfo: [
-            NSLocalizedDescriptionKey: "Invalid audio input format sampleRate=\(inputFormat.sampleRate) channelCount=\(inputFormat.channelCount)",
-          ]
-        )
-      }
-
-      simulatorValidationSessionActive = false
-      PlynSharedStore.saveValidationOnlySession(false)
-      sampleRate = inputFormat.sampleRate
-
-      if !tapInstalled {
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-          self?.appendAudioBuffer(buffer)
-        }
-
-        tapInstalled = true
-      }
-
-      if !engine.isRunning {
-        engine.prepare()
-        try engine.start()
-      }
-
-      PlynSharedStore.saveSessionActive(true)
+    let inputFormat = engine.inputNode.inputFormat(forBus: 0)
+    guard PlynAudioInputFormat.isValidRecordingFormat(
+      sampleRate: inputFormat.sampleRate,
+      channelCount: inputFormat.channelCount
+    ) else {
       PlynSharedStore.saveKeyboardCommand(.none)
-      log("startSession engineRunning=\(engine.isRunning) sampleRate=\(sampleRate)")
+      log("startSession deferred invalidInput sampleRate=\(inputFormat.sampleRate) channelCount=\(inputFormat.channelCount)")
+      return getStatus()
     }
 
+    sampleRate = inputFormat.sampleRate
+
+    if !tapInstalled {
+      engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+        self?.appendAudioBuffer(buffer)
+      }
+
+      tapInstalled = true
+    }
+
+    if !engine.isRunning {
+      engine.prepare()
+      try engine.start()
+    }
+
+    PlynSharedStore.saveSessionActive(true)
+    PlynSharedStore.saveKeyboardCommand(.none)
+    log("startSession engineRunning=\(engine.isRunning) sampleRate=\(sampleRate)")
     return getStatus()
   }
 
@@ -165,11 +116,8 @@ final class PlyńSessionManager {
     cancelTranscriptionTask()
     isCapturing = false
     recoveryState.markSessionStopped()
-    endTranscriptionBackgroundTask(reason: "stop_session")
     audioChunks.removeAll()
     sessionSuspendedForAppRecording = false
-    simulatorValidationSessionActive = false
-    PlynSharedStore.saveValidationOnlySession(false)
     activeTranscriptSessionID = nil
     transcriptSnapshotSequence = 0
 
@@ -185,42 +133,6 @@ final class PlyńSessionManager {
     PlynSharedStore.saveKeyboardCommand(.none)
     PlynSharedStore.clearLatestTranscript()
     log("stopSession engineRunning=\(engine.isRunning)")
-  }
-
-  func pauseSessionUntilKeyboardVisible() {
-    onWorkQueueSync {
-      self.cancelTranscriptionTask()
-      self.isCapturing = false
-      self.endTranscriptionBackgroundTask(reason: "pause_until_keyboard_visible")
-      self.audioChunks.removeAll()
-      self.sessionSuspendedForAppRecording = false
-      self.simulatorValidationSessionActive = false
-      self.activeTranscriptSessionID = nil
-      self.transcriptSnapshotSequence = 0
-      PlynSharedStore.saveValidationOnlySession(false)
-
-      if self.tapInstalled {
-        self.engine.inputNode.removeTap(onBus: 0)
-        self.tapInstalled = false
-      }
-
-      if self.engine.isRunning {
-        self.engine.stop()
-      }
-
-      try? self.session.setActive(false, options: .notifyOthersOnDeactivation)
-
-      if PlynSharedStore.hasApiKey() {
-        self.recoveryState.markSessionRequestedActive(source: self.recoveryState.activationSource ?? .automatic)
-      } else {
-        self.recoveryState.markSessionStopped()
-      }
-
-      PlynSharedStore.saveSessionActive(false)
-      PlynSharedStore.saveKeyboardCommand(.none)
-      PlynSharedStore.clearLatestTranscript()
-      self.log("pauseSessionUntilKeyboardVisible engineRunning=\(self.engine.isRunning)")
-    }
   }
 
   private func configureLifecycleObservers() {
@@ -242,21 +154,14 @@ final class PlyńSessionManager {
         object: nil,
         queue: nil
       ) { [weak self] _ in
-        self?.evaluateKeyboardVisibilityDemandAsync(forceEvaluation: true)
-      },
-      center.addObserver(
-        forName: UIApplication.didEnterBackgroundNotification,
-        object: nil,
-        queue: nil
-      ) { [weak self] _ in
-        self?.evaluateKeyboardVisibilityDemandAsync(forceEvaluation: true)
+        self?.recoverSessionIfNeededAsync(reason: "app_did_become_active")
       },
     ]
   }
 
   @discardableResult
   private func synchronizeSharedSessionState() -> Bool {
-    let isActive = sessionSuspendedForAppRecording || simulatorValidationSessionActive || engine.isRunning
+    let isActive = sessionSuspendedForAppRecording || recoveryState.advertisedSessionActive(engineRunning: engine.isRunning)
 
     if PlynSharedStore.isSessionActive() != isActive {
       PlynSharedStore.saveSessionActive(isActive)
@@ -267,7 +172,7 @@ final class PlyńSessionManager {
       }
     }
 
-    log("synchronize isActive=\(isActive) engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording) simulatorValidation=\(simulatorValidationSessionActive) command=\(PlynSharedStore.keyboardCommand().rawValue) status=\(PlynSharedStore.keyboardStatus().rawValue)")
+    log("synchronize isActive=\(isActive) engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording) command=\(PlynSharedStore.keyboardCommand().rawValue) status=\(PlynSharedStore.keyboardStatus().rawValue)")
 
     return isActive
   }
@@ -305,66 +210,15 @@ final class PlyńSessionManager {
     }
   }
 
-  private func evaluateKeyboardVisibilityDemandAsync(forceEvaluation: Bool = false) {
+  private func recoverSessionIfNeededAsync(reason: String) {
     workQueue.async {
-      self.evaluateKeyboardVisibilityDemand(forceEvaluation: forceEvaluation)
-    }
-  }
-
-  private func evaluateKeyboardVisibilityDemand(forceEvaluation: Bool = false) {
-    let isKeyboardVisible = PlynSharedStore.isKeyboardVisible()
-    let isSessionActive = sessionSuspendedForAppRecording || simulatorValidationSessionActive || engine.isRunning
-    let isAppBackgrounded = UIApplication.shared.applicationState == .background
-    let context = PlynCompanionSessionDemand.Context(
-      isKeyboardVisible: isKeyboardVisible,
-      isAppBackgrounded: isAppBackgrounded,
-      isSessionActive: isSessionActive,
-      hasAPIKey: PlynSharedStore.hasApiKey(),
-      activationSource: recoveryState.activationSource
-    )
-
-    guard PlynCompanionSessionDemand.shouldReevaluate(
-      previousContext: lastObservedDemandContext,
-      currentContext: context,
-      forceEvaluation: forceEvaluation
-    ) else {
-      return
-    }
-
-    lastObservedDemandContext = context
-
-    let action = PlynCompanionSessionDemand.actionForKeyboardVisibility(
-      isKeyboardVisible: context.isKeyboardVisible,
-      isAppBackgrounded: context.isAppBackgrounded,
-      isSessionActive: context.isSessionActive,
-      hasAPIKey: context.hasAPIKey,
-      activationSource: context.activationSource,
-      recoveryAttemptTimestamp: PlynSharedStore.sessionRecoveryAttemptTimestamp()
-    )
-
-    guard action != .none else {
-      return
-    }
-
-    log("evaluateKeyboardVisibilityDemand visible=\(isKeyboardVisible) appBackgrounded=\(isAppBackgrounded) action=\(action.rawValue)")
-
-    switch action {
-    case .start:
-      do {
-        _ = try startSession(source: .automatic)
-      } catch {
-        log("evaluateKeyboardVisibilityDemand startFailed error=\(error.localizedDescription)")
-      }
-    case .stop:
-      pauseSessionUntilKeyboardVisible()
-    case .none:
-      break
+      _ = self.recoverSessionIfNeeded(reason: reason)
     }
   }
 
   @discardableResult
   private func recoverSessionIfNeeded(reason: String) -> Bool {
-    guard recoveryState.shouldAttemptRecovery(engineRunning: engine.isRunning || simulatorValidationSessionActive) else {
+    guard recoveryState.shouldAttemptRecovery(engineRunning: engine.isRunning) else {
       return synchronizeSharedSessionState()
     }
 
@@ -379,7 +233,7 @@ final class PlyńSessionManager {
 
     do {
       log("recoverSessionIfNeeded attempting reason=\(reason)")
-      _ = try startSession(source: recoveryState.activationSource ?? .automatic)
+      _ = try startSession()
       return synchronizeSharedSessionState()
     } catch {
       log("recoverSessionIfNeeded failed reason=\(reason) error=\(error.localizedDescription)")
@@ -396,8 +250,6 @@ final class PlyńSessionManager {
 
       recoveryState.markSuspendedForAppRecording()
       sessionSuspendedForAppRecording = true
-      self.endTranscriptionBackgroundTask(reason: "suspend_for_app_recording")
-      simulatorValidationSessionActive = false
       isCapturing = false
       audioChunks.removeAll()
       activeTranscriptSessionID = nil
@@ -429,19 +281,13 @@ final class PlyńSessionManager {
       return
     }
 
-    _ = try startSession(source: recoveryState.activationSource ?? .automatic)
+    _ = try startSession()
     log("resumeAfterAppRecording engineRunning=\(engine.isRunning)")
   }
 
   private func handleSharedCommandNotification() {
     workQueue.async {
       self.processPendingKeyboardCommand()
-    }
-  }
-
-  private func handleSharedStateNotification() {
-    workQueue.async {
-      self.evaluateKeyboardVisibilityDemand(forceEvaluation: true)
     }
   }
 
@@ -453,7 +299,6 @@ final class PlyńSessionManager {
     let timer = DispatchSource.makeTimerSource(queue: workQueue)
     timer.schedule(deadline: .now(), repeating: .milliseconds(250))
     timer.setEventHandler { [weak self] in
-      self?.evaluateKeyboardVisibilityDemand()
       self?.refreshSharedSessionHeartbeatIfNeeded()
       self?.processPendingKeyboardCommand()
     }
@@ -462,7 +307,7 @@ final class PlyńSessionManager {
   }
 
   private func refreshSharedSessionHeartbeatIfNeeded() {
-    guard sessionSuspendedForAppRecording || simulatorValidationSessionActive || engine.isRunning else {
+    guard sessionSuspendedForAppRecording || recoveryState.advertisedSessionActive(engineRunning: engine.isRunning) else {
       return
     }
 
@@ -495,6 +340,18 @@ final class PlyńSessionManager {
   private func startKeyboardCapture() {
     guard PlynSharedStore.isSessionActive() else {
       PlynSharedStore.saveKeyboardStatus(.inactive)
+      return
+    }
+
+    guard recoverSessionIfNeeded(reason: "keyboard_start_capture") else {
+      PlynSharedStore.saveKeyboardStatus(.failed)
+      log("startKeyboardCapture failed to recover session")
+      return
+    }
+
+    guard engine.isRunning else {
+      PlynSharedStore.saveKeyboardStatus(.failed)
+      log("startKeyboardCapture blocked because engine is not running")
       return
     }
 
@@ -565,13 +422,8 @@ final class PlyńSessionManager {
 
   private func transcribe(audioData: Data, transcriptSessionID: String) {
     let startedAt = Date()
-    transcriptionBackgroundTaskID = beginBackgroundTask(
-      name: "com.holas.Plynkeyboard.transcription",
-      reason: "transcribe"
-    )
 
     guard let apiKey = PlynSharedStore.apiKey() else {
-      endTranscriptionBackgroundTask(reason: "missing_api_key")
       publishTranscriptSnapshot("", transcriptSessionID: transcriptSessionID, isFinal: true, state: .failed, errorCode: "missing_api_key")
       PlynSharedStore.saveKeyboardStatus(.failed)
       trackKeyboardTranscriptionMetrics(result: "error", transcript: "", startedAt: startedAt)
@@ -579,7 +431,6 @@ final class PlyńSessionManager {
     }
 
     guard let systemInstruction = PlynSharedStore.geminiSystemPrompt() else {
-      endTranscriptionBackgroundTask(reason: "missing_runtime_config")
       publishTranscriptSnapshot("", transcriptSessionID: transcriptSessionID, isFinal: true, state: .failed, errorCode: "missing_runtime_config")
       PlynSharedStore.saveKeyboardStatus(.failed)
       trackKeyboardTranscriptionMetrics(result: "error", transcript: "", startedAt: startedAt)
@@ -587,7 +438,6 @@ final class PlyńSessionManager {
     }
 
     guard let url = PlynSharedStore.geminiStreamEndpointURL(apiKey: apiKey) else {
-      endTranscriptionBackgroundTask(reason: "missing_stream_url")
       publishTranscriptSnapshot("", transcriptSessionID: transcriptSessionID, isFinal: true, state: .failed, errorCode: "missing_runtime_config")
       PlynSharedStore.saveKeyboardStatus(.failed)
       trackKeyboardTranscriptionMetrics(result: "error", transcript: "", startedAt: startedAt)
@@ -623,11 +473,6 @@ final class PlyńSessionManager {
       transcriptionTask = Task { [weak self] in
         guard let self else {
           return
-        }
-
-        defer {
-          self.endTranscriptionBackgroundTask(reason: "transcribe_complete")
-          self.transcriptionTask = nil
         }
 
         do {
@@ -696,7 +541,6 @@ final class PlyńSessionManager {
         }
       }
     } catch {
-      endTranscriptionBackgroundTask(reason: "request_encoding_failed")
       PlynSharedStore.saveKeyboardStatus(.failed)
       trackKeyboardTranscriptionMetrics(result: "error", transcript: "", startedAt: startedAt)
     }
@@ -705,7 +549,6 @@ final class PlyńSessionManager {
   private func cancelTranscriptionTask() {
     transcriptionTask?.cancel()
     transcriptionTask = nil
-    endTranscriptionBackgroundTask(reason: "cancel_transcription")
   }
 
   private func isTranscriptSessionActive(_ transcriptSessionID: String) -> Bool {
@@ -755,66 +598,6 @@ final class PlyńSessionManager {
     }
 
     return workQueue.sync(execute: work)
-  }
-
-  private func withSessionActivationBackgroundTask<T>(reason: String, work: () throws -> T) throws -> T {
-    let taskID = beginBackgroundTask(
-      name: "com.holas.Plynkeyboard.sessionActivation",
-      reason: reason
-    )
-    defer {
-      endBackgroundTask(taskID, reason: reason)
-    }
-
-    return try work()
-  }
-
-  private func beginBackgroundTask(name: String, reason: String) -> UIBackgroundTaskIdentifier {
-    if Thread.isMainThread {
-      var taskID: UIBackgroundTaskIdentifier = .invalid
-      taskID = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
-        self?.log("backgroundTask expired name=\(name) reason=\(reason)")
-        self?.endBackgroundTask(taskID, reason: reason)
-      }
-      return taskID
-    }
-
-    let semaphore = DispatchSemaphore(value: 0)
-    var taskID: UIBackgroundTaskIdentifier = .invalid
-
-    DispatchQueue.main.async {
-      taskID = self.beginBackgroundTask(name: name, reason: reason)
-      semaphore.signal()
-    }
-
-    if semaphore.wait(timeout: .now() + .milliseconds(500)) == .success {
-      return taskID
-    }
-
-    log("backgroundTask skippedOffMainQueue name=\(name) reason=\(reason)")
-    return .invalid
-  }
-
-  private func endBackgroundTask(_ taskID: UIBackgroundTaskIdentifier, reason: String) {
-    guard taskID != .invalid else {
-      return
-    }
-
-    if Thread.isMainThread {
-      UIApplication.shared.endBackgroundTask(taskID)
-      log("backgroundTask ended reason=\(reason)")
-      return
-    }
-
-    DispatchQueue.main.async {
-      self.endBackgroundTask(taskID, reason: reason)
-    }
-  }
-
-  private func endTranscriptionBackgroundTask(reason: String) {
-    let taskID = transcriptionBackgroundTaskID
-    transcriptionBackgroundTaskID = .invalid
-    endBackgroundTask(taskID, reason: reason)
   }
 
   private func fetchTranscriptFallback(request: URLRequest) async throws -> PlyńSpeech.TranscriptionResult {

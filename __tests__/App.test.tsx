@@ -1082,13 +1082,14 @@ test('restores persisted section expansion state on relaunch', async () => {
   expect(findByTestID(tree!, 'token-summary-content')).toBeTruthy();
 });
 
-test('keeps the iPhone companion session inactive while the app is foregrounded even when a saved key exists', async () => {
+test('starts the iPhone companion session automatically when a saved key exists', async () => {
   Platform.OS = 'ios';
   configModule.getStatus.mockResolvedValueOnce({
     hasApiKey: true,
     platformMode: 'ios-keyboard-extension',
   });
   sessionModule.getStatus.mockResolvedValueOnce({ isActive: false });
+  sessionModule.startSession.mockResolvedValueOnce({ isActive: true });
 
   let tree: ReactTestRenderer.ReactTestRenderer;
 
@@ -1096,10 +1097,15 @@ test('keeps the iPhone companion session inactive while the app is foregrounded 
     tree = ReactTestRenderer.create(<App />);
   });
 
-  expect(sessionModule.startSession).not.toHaveBeenCalled();
+  expect(sessionModule.startSession).toHaveBeenCalledTimes(1);
   expect(findByTestID(tree!, 'session-status-label')).toBeTruthy();
+  expect(mockTrackEvent).toHaveBeenCalledWith('companion_session_start', {
+    platform: 'ios',
+    source: 'auto_start',
+    result: 'success',
+  });
   expect(findByTestID(tree!, 'session-status-label').props.children).toBe(
-    'Кампаньён неактыўны',
+    'Кампаньён актыўны',
   );
 });
 
@@ -1180,13 +1186,14 @@ test('refreshes the saved iOS state when native bridges appear after the first r
   }
 });
 
-test('keeps the iPhone companion session inactive when opened from the session deep link', async () => {
+test('retries the iPhone companion session when opened from the session deep link', async () => {
   Platform.OS = 'ios';
   configModule.getStatus.mockResolvedValueOnce({
     hasApiKey: true,
     platformMode: 'ios-keyboard-extension',
   });
   sessionModule.getStatus.mockResolvedValueOnce({ isActive: true });
+  sessionModule.startSession.mockResolvedValueOnce({ isActive: true });
 
   await ReactTestRenderer.act(async () => {
     ReactTestRenderer.create(<App />);
@@ -1198,5 +1205,13 @@ test('keeps the iPhone companion session inactive when opened from the session d
     urlHandler?.({ url: 'plyn://session' });
   });
 
-  expect(sessionModule.startSession).not.toHaveBeenCalled();
+  expect(sessionModule.startSession).toHaveBeenCalledTimes(1);
+  expect(mockTrackEvent).toHaveBeenCalledWith('session_recovery_link_opened', {
+    platform: 'ios',
+  });
+  expect(mockTrackEvent).toHaveBeenCalledWith('companion_session_start', {
+    platform: 'ios',
+    source: 'deep_link_retry',
+    result: 'success',
+  });
 });
