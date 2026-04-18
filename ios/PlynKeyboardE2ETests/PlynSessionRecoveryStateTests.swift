@@ -9,12 +9,12 @@ final class PlynSessionRecoveryStateTests: XCTestCase {
     XCTAssertTrue(state.shouldAttemptRecovery(engineRunning: false))
   }
 
-  func testAdvertisesSessionActiveWhileRecoveryIsStillPending() {
+  func testKeepsRequestedSessionActiveWhileRecoveryIsStillPending() {
     var state = PlynSessionRecoveryState()
 
     state.markSessionRequestedActive()
 
-    XCTAssertTrue(state.advertisedSessionActive(engineRunning: false))
+    XCTAssertTrue(state.shouldKeepSessionActive)
   }
 
   func testDoesNotRecoverAfterExplicitStop() {
@@ -53,12 +53,34 @@ final class PlynSessionRecoveryStateTests: XCTestCase {
     XCTAssertFalse(state.shouldAttemptRecovery(engineRunning: true))
   }
 
-  func testDoesNotAdvertiseSessionActiveAfterExplicitStop() {
+  func testKeepsRecoveryIntentUntilSessionStopsExplicitly() {
+    var state = PlynSessionRecoveryState()
+
+    state.markSessionRequestedActive()
+
+    XCTAssertTrue(state.shouldAttemptRecovery(engineRunning: false))
+
+    state.markSessionStopped()
+
+    XCTAssertFalse(state.shouldAttemptRecovery(engineRunning: false))
+  }
+
+  func testDoesNotKeepRequestedSessionActiveAfterExplicitStop() {
     var state = PlynSessionRecoveryState()
 
     state.markSessionRequestedActive()
     state.markSessionStopped()
 
-    XCTAssertFalse(state.advertisedSessionActive(engineRunning: false))
+    XCTAssertFalse(state.shouldKeepSessionActive)
+  }
+
+  func testKeepsRequestedSessionActiveDuringAudioInterruption() {
+    var state = PlynSessionRecoveryState()
+
+    state.markSessionRequestedActive()
+    state.markAudioSessionInterrupted()
+
+    XCTAssertTrue(state.shouldKeepSessionActive)
+    XCTAssertTrue(state.shouldAttemptRecovery(engineRunning: false))
   }
 }

@@ -77,6 +77,7 @@ final class PlyńSessionManager {
   func startSession() throws -> [String: Any] {
     configure()
     recoveryState.markSessionRequestedActive()
+    _ = synchronizeSharedSessionState()
 
     try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .allowBluetooth, .defaultToSpeaker])
     try session.setActive(true)
@@ -107,6 +108,8 @@ final class PlyńSessionManager {
     }
 
     PlynSharedStore.saveSessionActive(true)
+    PlynSharedStore.saveSessionRequestedActive(true)
+    PlynSharedStore.clearSessionRecoveryAttemptTimestamp()
     PlynSharedStore.saveKeyboardCommand(.none)
     log("startSession engineRunning=\(engine.isRunning) sampleRate=\(sampleRate)")
     return getStatus()
@@ -130,6 +133,8 @@ final class PlyńSessionManager {
     try? session.setActive(false, options: .notifyOthersOnDeactivation)
 
     PlynSharedStore.saveSessionActive(false)
+    PlynSharedStore.saveSessionRequestedActive(false)
+    PlynSharedStore.clearSessionRecoveryAttemptTimestamp()
     PlynSharedStore.saveKeyboardCommand(.none)
     PlynSharedStore.clearLatestTranscript()
     log("stopSession engineRunning=\(engine.isRunning)")
@@ -161,7 +166,19 @@ final class PlyńSessionManager {
 
   @discardableResult
   private func synchronizeSharedSessionState() -> Bool {
-    let isActive = sessionSuspendedForAppRecording || recoveryState.advertisedSessionActive(engineRunning: engine.isRunning)
+    let isActive = PlynCompanionSessionAvailability.isSharedSessionActive(
+      engineRunning: engine.isRunning,
+      suspendedForAppRecording: sessionSuspendedForAppRecording
+    )
+    let isRequestedActive = PlynCompanionSessionAvailability.isSharedSessionRequestedActive(
+      shouldKeepSessionActive: recoveryState.shouldKeepSessionActive,
+      engineRunning: engine.isRunning,
+      suspendedForAppRecording: sessionSuspendedForAppRecording
+    )
+
+    if PlynSharedStore.isSessionRequestedActive() != isRequestedActive {
+      PlynSharedStore.saveSessionRequestedActive(isRequestedActive)
+    }
 
     if PlynSharedStore.isSessionActive() != isActive {
       PlynSharedStore.saveSessionActive(isActive)
@@ -172,7 +189,7 @@ final class PlyńSessionManager {
       }
     }
 
-    log("synchronize isActive=\(isActive) engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording) command=\(PlynSharedStore.keyboardCommand().rawValue) status=\(PlynSharedStore.keyboardStatus().rawValue)")
+    log("synchronize isActive=\(isActive) requested=\(isRequestedActive) engineRunning=\(engine.isRunning) suspended=\(sessionSuspendedForAppRecording) command=\(PlynSharedStore.keyboardCommand().rawValue) status=\(PlynSharedStore.keyboardStatus().rawValue)")
 
     return isActive
   }
@@ -190,6 +207,7 @@ final class PlyńSessionManager {
       case .began:
         let wasSuspended = (notification.userInfo?[AVAudioSessionInterruptionWasSuspendedKey] as? NSNumber)?.boolValue ?? false
         self.log("audioInterruption began wasSuspended=\(wasSuspended)")
+        self.recoveryState.markAudioSessionInterrupted()
         self.cancelTranscriptionTask()
         self.isCapturing = false
         self.audioChunks.removeAll()
@@ -232,6 +250,7 @@ final class PlyńSessionManager {
     }
 
     do {
+      PlynSharedStore.saveSessionRecoveryAttemptTimestamp()
       log("recoverSessionIfNeeded attempting reason=\(reason)")
       _ = try startSession()
       return synchronizeSharedSessionState()
@@ -299,6 +318,7 @@ final class PlyńSessionManager {
     let timer = DispatchSource.makeTimerSource(queue: workQueue)
     timer.schedule(deadline: .now(), repeating: .milliseconds(250))
     timer.setEventHandler { [weak self] in
+      self?.refreshSharedSessionRequestedHeartbeatIfNeeded()
       self?.refreshSharedSessionHeartbeatIfNeeded()
       self?.processPendingKeyboardCommand()
     }
@@ -307,11 +327,26 @@ final class PlyńSessionManager {
   }
 
   private func refreshSharedSessionHeartbeatIfNeeded() {
-    guard sessionSuspendedForAppRecording || recoveryState.advertisedSessionActive(engineRunning: engine.isRunning) else {
+    guard PlynCompanionSessionAvailability.isSharedSessionActive(
+      engineRunning: engine.isRunning,
+      suspendedForAppRecording: sessionSuspendedForAppRecording
+    ) else {
       return
     }
 
     PlynSharedStore.refreshSessionHeartbeat()
+  }
+
+  private func refreshSharedSessionRequestedHeartbeatIfNeeded() {
+    guard PlynCompanionSessionAvailability.isSharedSessionRequestedActive(
+      shouldKeepSessionActive: recoveryState.shouldKeepSessionActive,
+      engineRunning: engine.isRunning,
+      suspendedForAppRecording: sessionSuspendedForAppRecording
+    ) else {
+      return
+    }
+
+    PlynSharedStore.refreshSessionRequestedHeartbeat()
   }
 
   private func processPendingKeyboardCommand() {

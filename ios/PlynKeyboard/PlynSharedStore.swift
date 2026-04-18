@@ -32,8 +32,11 @@ enum PlynSharedStore {
   private static let latestTranscriptStateKey = "latest_transcript_state"
   private static let latestTranscriptErrorCodeKey = "latest_transcript_error_code"
   private static let sessionActiveKey = "ios_session_active"
+  private static let sessionRequestedActiveKey = "ios_session_requested_active"
   private static let keyboardVisibleKey = "ios_keyboard_visible"
   private static let sessionHeartbeatUpdatedAtKey = "ios_session_heartbeat_updated_at"
+  private static let sessionRequestedHeartbeatUpdatedAtKey = "ios_session_requested_heartbeat_updated_at"
+  private static let sessionRecoveryAttemptedAtKey = "ios_session_recovery_attempted_at"
   private static let keyboardCommandKey = "ios_keyboard_command"
   private static let keyboardCommandUpdatedAtKey = "ios_keyboard_command_updated_at"
   private static let keyboardStatusKey = "ios_keyboard_status"
@@ -488,6 +491,21 @@ enum PlynSharedStore {
     defaults.synchronize()
   }
 
+  static func isSessionRequestedActive() -> Bool {
+    defaults.bool(forKey: sessionRequestedActiveKey)
+  }
+
+  static func saveSessionRequestedActive(_ active: Bool) {
+    defaults.set(active, forKey: sessionRequestedActiveKey)
+    if active {
+      refreshSessionRequestedHeartbeat()
+    } else {
+      defaults.removeObject(forKey: sessionRequestedHeartbeatUpdatedAtKey)
+    }
+    defaults.synchronize()
+    postStateNotification()
+  }
+
   static func isKeyboardVisible() -> Bool {
     defaults.bool(forKey: keyboardVisibleKey)
   }
@@ -503,8 +521,33 @@ enum PlynSharedStore {
     defaults.synchronize()
   }
 
+  static func refreshSessionRequestedHeartbeat() {
+    defaults.set(Date().timeIntervalSince1970, forKey: sessionRequestedHeartbeatUpdatedAtKey)
+    defaults.synchronize()
+  }
+
   static func sessionHeartbeatTimestamp() -> Date? {
     date(forKey: sessionHeartbeatUpdatedAtKey)
+  }
+
+  static func sessionRequestedHeartbeatTimestamp() -> Date? {
+    date(forKey: sessionRequestedHeartbeatUpdatedAtKey)
+  }
+
+  static func saveSessionRecoveryAttemptTimestamp(_ date: Date = Date()) {
+    defaults.set(date.timeIntervalSince1970, forKey: sessionRecoveryAttemptedAtKey)
+    defaults.synchronize()
+    postStateNotification()
+  }
+
+  static func clearSessionRecoveryAttemptTimestamp() {
+    defaults.removeObject(forKey: sessionRecoveryAttemptedAtKey)
+    defaults.synchronize()
+    postStateNotification()
+  }
+
+  static func sessionRecoveryAttemptTimestamp() -> Date? {
+    date(forKey: sessionRecoveryAttemptedAtKey)
   }
 
   static func saveKeyboardLaunchDebug(_ message: String) {
@@ -545,6 +588,8 @@ enum PlynSharedStore {
     defaults.removeObject(forKey: keyboardDebugLogKey)
     defaults.removeObject(forKey: companionDebugLogKey)
     defaults.removeObject(forKey: sessionHeartbeatUpdatedAtKey)
+    defaults.removeObject(forKey: sessionRequestedHeartbeatUpdatedAtKey)
+    defaults.removeObject(forKey: sessionRecoveryAttemptedAtKey)
     defaults.synchronize()
   }
 
@@ -561,7 +606,10 @@ enum PlynSharedStore {
       "keyboardLaunchDebug": defaults.string(forKey: keyboardLaunchDebugKey) ?? "",
       "keyboardDebugLog": keyboardDebugLog(),
       "sessionActive": isSessionActive(),
+      "sessionRequestedActive": isSessionRequestedActive(),
       "sessionHeartbeatUpdatedAt": bridgeValue(dateTimestamp(forKey: sessionHeartbeatUpdatedAtKey)),
+      "sessionRequestedHeartbeatUpdatedAt": bridgeValue(dateTimestamp(forKey: sessionRequestedHeartbeatUpdatedAtKey)),
+      "sessionRecoveryAttemptedAt": bridgeValue(dateTimestamp(forKey: sessionRecoveryAttemptedAtKey)),
       "companionDebugLog": companionDebugLog(),
     ]
   }

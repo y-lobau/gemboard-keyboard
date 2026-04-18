@@ -35,8 +35,15 @@ final class KeyboardViewController: UIInputViewController {
     case processing
     case setupRequired
     case sessionRequired
+    case sessionRecovering
     case companionTimeout
     case failed
+  }
+
+  private enum CompanionSessionState {
+    case responsive
+    case recoverable
+    case unavailable
   }
 
   private enum WaveAnimationMode {
@@ -365,13 +372,13 @@ final class KeyboardViewController: UIInputViewController {
   private func reloadState() {
     nextKeyboardButton.isHidden = !needsInputModeSwitchKey
 
-    let sessionActive = hasResponsiveCompanionSession()
+    let sessionState = companionSessionState()
     let sharedKeyboardStatus = PlynSharedStore.keyboardStatus()
 
     let transientErrorLogValue = transientErrorMessage ?? "<none>"
 
     logDebug(
-      "reloadState status=\(sharedKeyboardStatus.rawValue) sessionActive=\(sessionActive) apiKey=\(PlynSharedStore.hasApiKey()) transientError=\(transientErrorLogValue)"
+      "reloadState status=\(sharedKeyboardStatus.rawValue) sessionState=\(String(describing: sessionState)) apiKey=\(PlynSharedStore.hasApiKey()) transientError=\(transientErrorLogValue)"
     )
 
     if pendingStopAfterRecordingStarts, sharedKeyboardStatus == .recording {
@@ -381,19 +388,40 @@ final class KeyboardViewController: UIInputViewController {
 
     applyTranscriptSnapshotIfNeeded(sharedKeyboardStatus: sharedKeyboardStatus)
 
-    let presentationState = makePresentationState(sessionActive: sessionActive, keyboardStatus: sharedKeyboardStatus)
+    let presentationState = makePresentationState(sessionState: sessionState, keyboardStatus: sharedKeyboardStatus)
     applyPresentationState(presentationState)
+  }
+
+  private func companionSessionState() -> CompanionSessionState {
+    if hasResponsiveCompanionSession() {
+      return .responsive
+    }
+
+    if hasRecoverableCompanionSession() {
+      return .recoverable
+    }
+
+    return .unavailable
   }
 
   private func hasResponsiveCompanionSession() -> Bool {
     PlynCompanionSessionLiveness.isResponsive(
       isSessionActive: PlynSharedStore.isSessionActive(),
-      heartbeatTimestamp: PlynSharedStore.sessionHeartbeatTimestamp()
+      heartbeatTimestamp: PlynSharedStore.sessionHeartbeatTimestamp(),
+      recoveryAttemptTimestamp: PlynSharedStore.sessionRecoveryAttemptTimestamp()
+    )
+  }
+
+  private func hasRecoverableCompanionSession() -> Bool {
+    PlynCompanionSessionLiveness.isRecoverable(
+      isSessionRequestedActive: PlynSharedStore.isSessionRequestedActive(),
+      requestedHeartbeatTimestamp: PlynSharedStore.sessionRequestedHeartbeatTimestamp(),
+      recoveryAttemptTimestamp: PlynSharedStore.sessionRecoveryAttemptTimestamp()
     )
   }
 
   private func makePresentationState(
-    sessionActive: Bool,
+    sessionState: CompanionSessionState,
     keyboardStatus: PlynSharedStore.KeyboardStatus
   ) -> KeyboardPresentationState {
     if let transientErrorMessage, !transientErrorMessage.isEmpty {
@@ -404,13 +432,20 @@ final class KeyboardViewController: UIInputViewController {
       return .setupRequired
     }
 
-    guard sessionActive else {
+    guard sessionState != .unavailable else {
       return .sessionRequired
     }
 
     if hasCompanionTimedOut(status: keyboardStatus) {
       transientErrorMessage = "Праграма-кампаньён не адказвае"
       return .companionTimeout
+    }
+
+    if sessionState == .recoverable,
+       keyboardStatus == .ready || keyboardStatus == .inactive || keyboardStatus == .failed
+    {
+      transientErrorMessage = nil
+      return .sessionRecovering
     }
 
     if isMicButtonPressed || keyboardStatus == .recording {
@@ -515,6 +550,13 @@ final class KeyboardViewController: UIInputViewController {
       statusText = "Запусці праграму-кампаньён"
       statusColor = supportingInfoColor
       micSymbol = "bolt.fill"
+      micBackground = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
+      micTint = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
+      waveColor = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 0.9)
+    case .sessionRecovering:
+      statusText = "Сесія аднаўляецца. Паспрабуй яшчэ раз"
+      statusColor = supportingInfoColor
+      micSymbol = "arrow.clockwise"
       micBackground = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 1)
       micTint = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
       waveColor = UIColor(red: 0.96, green: 0.76, blue: 0.48, alpha: 0.9)
@@ -776,9 +818,11 @@ final class KeyboardViewController: UIInputViewController {
   private func handleMicPressDown() {
     let keyboardStatus = PlynSharedStore.keyboardStatus()
     let timedOut = hasCompanionTimedOut(status: keyboardStatus) || (transientErrorMessage?.isEmpty == false)
+    let responsiveSession = hasResponsiveCompanionSession()
+    let recoverableSession = hasRecoverableCompanionSession()
 
     logDebug(
-      "handleMicPressDown status=\(keyboardStatus.rawValue) timedOut=\(timedOut) apiKey=\(PlynSharedStore.hasApiKey()) responsiveSession=\(hasResponsiveCompanionSession())"
+      "handleMicPressDown status=\(keyboardStatus.rawValue) timedOut=\(timedOut) apiKey=\(PlynSharedStore.hasApiKey()) responsiveSession=\(responsiveSession) recoverableSession=\(recoverableSession)"
     )
 
     if timedOut {
@@ -801,7 +845,7 @@ final class KeyboardViewController: UIInputViewController {
       return
     }
 
-    guard hasResponsiveCompanionSession() else {
+    guard responsiveSession else {
       logDebug("blocked mic press because responsive session is unavailable; trying session recovery URL")
       openCompanionApp(
         using: Self.sessionRecoveryURL,
@@ -867,11 +911,13 @@ final class KeyboardViewController: UIInputViewController {
     transientErrorMessage = nil
 
     if openCompanionAppThroughSharedApplication(url) {
+      persistRecoveryAttemptTimestampIfNeeded(for: url)
       logDebug("sharedApplication launch reported success for url=\(url.absoluteString)")
       return
     }
 
     if openCompanionAppThroughResponderChain(url) {
+      persistRecoveryAttemptTimestampIfNeeded(for: url)
       logDebug("primary responder-chain launch reported success for url=\(url.absoluteString)")
       return
     }
@@ -886,6 +932,7 @@ final class KeyboardViewController: UIInputViewController {
         self.logDebug("extensionContext.open completed success=\(success) url=\(url.absoluteString)")
 
         guard !success else {
+          self.persistRecoveryAttemptTimestampIfNeeded(for: url)
           return
         }
 
@@ -899,6 +946,17 @@ final class KeyboardViewController: UIInputViewController {
         self.reloadState()
       }
     }
+  }
+
+  private func persistRecoveryAttemptTimestampIfNeeded(for url: URL?) {
+    guard PlynCompanionRecoveryLaunch.shouldPersistRecoveryAttemptTimestamp(
+      requestedURL: url,
+      didLaunchSucceed: true
+    ) else {
+      return
+    }
+
+    PlynSharedStore.saveSessionRecoveryAttemptTimestamp()
   }
 
   private func openCompanionAppThroughResponderChain(_ url: URL) -> Bool {

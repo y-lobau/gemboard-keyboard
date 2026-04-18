@@ -27,4 +27,28 @@ enum PlynCompanionSessionLiveness {
     let recoveryAge = now.timeIntervalSince(recoveryAttemptTimestamp)
     return recoveryAge >= 0 && recoveryAge <= recoveryAttemptWindow
   }
+
+  static func isRecoverable(
+    isSessionRequestedActive: Bool,
+    requestedHeartbeatTimestamp: Date?,
+    recoveryAttemptTimestamp: Date? = nil,
+    now: Date = Date()
+  ) -> Bool {
+    if isSessionRequestedActive {
+      guard let requestedHeartbeatTimestamp else {
+        return true
+      }
+
+      if now.timeIntervalSince(requestedHeartbeatTimestamp) <= handoffWindow {
+        return true
+      }
+    }
+
+    guard let recoveryAttemptTimestamp else {
+      return false
+    }
+
+    let recoveryAge = now.timeIntervalSince(recoveryAttemptTimestamp)
+    return recoveryAge >= 0 && recoveryAge <= recoveryAttemptWindow
+  }
 }
