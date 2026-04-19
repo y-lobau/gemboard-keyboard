@@ -9,6 +9,14 @@ import {
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
 
+const mountedTrees: ReactTestRenderer.ReactTestRenderer[] = [];
+
+function renderTrackedApp() {
+  const tree = ReactTestRenderer.create(<App />);
+  mountedTrees.push(tree);
+  return tree;
+}
+
 function flushAsyncWork() {
   return new Promise(resolve => setImmediate(resolve));
 }
@@ -333,7 +341,7 @@ test('uses the ascii iOS session bridge when the accented native module is unava
   });
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   const sessionToggleButton = findByTestID(tree!, 'session-toggle-button');
@@ -346,6 +354,25 @@ test('uses the ascii iOS session bridge when the accented native module is unava
 });
 
 afterEach(() => {
+  jest.useRealTimers();
+
+  while (mountedTrees.length > 0) {
+    const tree = mountedTrees.pop();
+
+    if (!tree) {
+      continue;
+    }
+
+    try {
+      ReactTestRenderer.act(() => {
+        tree.unmount();
+      });
+    } catch {
+      // Ignore duplicate or late unmounts from tests that already cleaned up manually.
+    }
+  }
+
+  jest.clearAllTimers();
   jest.restoreAllMocks();
 });
 
@@ -357,7 +384,7 @@ test('renders the main tab with how-it-works first and the first two sections ex
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   findByTestID(tree!, 'onboarding-toggle');
@@ -385,7 +412,7 @@ test('collapses setup and how-it-works sections from their headers', async () =>
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   const hideHowItWorksButton = findByTestID(tree!, 'onboarding-toggle');
@@ -465,7 +492,7 @@ test('renders fetched token totals in the bottom summary', async () => {
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -597,7 +624,7 @@ test('renders last request, total, and average cost sections in order and resets
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -692,7 +719,7 @@ test('falls back to aggregate prompt token totals when modality details omit aud
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -710,7 +737,7 @@ test('falls back to aggregate prompt token totals when modality details omit aud
 
 test('syncs Firebase Remote Config on app startup', async () => {
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderTrackedApp();
   });
 
   expect(mockInitializeAnalytics).toHaveBeenCalledTimes(1);
@@ -726,7 +753,7 @@ test('syncs Firebase Remote Config on app startup', async () => {
 
 test('tracks the single screen view on app startup', async () => {
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderTrackedApp();
   });
 
   expect(mockTrackScreenView).toHaveBeenCalledWith('main');
@@ -739,7 +766,7 @@ test('triggers the Crashlytics test flow from the iOS debug deep link', async ()
     .mockResolvedValue('plyn://crashlytics-test');
 
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderTrackedApp();
     await flushAsyncWork();
     await new Promise(resolve => setTimeout(resolve, 0));
   });
@@ -755,7 +782,7 @@ test('opens the launch preview screen from the debug deep link', async () => {
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -763,7 +790,7 @@ test('opens the launch preview screen from the debug deep link', async () => {
   expect(queryByTestID(tree!, 'setup-toggle')).toHaveLength(0);
 });
 
-test('opens the iOS debug panel from the visible onboarding action and renders shared logs', async () => {
+test('does not show a visible onboarding debug action on iOS', async () => {
   Platform.OS = 'ios';
   configModule.getStatus.mockResolvedValue({
     hasApiKey: true,
@@ -774,28 +801,13 @@ test('opens the iOS debug panel from the visible onboarding action and renders s
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
-  const openDebugButton = findByTestID(tree!, 'debug-open-button');
-
-  await ReactTestRenderer.act(async () => {
-    openDebugButton.props.onPress();
-    await flushAsyncWork();
-  });
-
-  expect(findByTestID(tree!, 'debug-panel')).toBeTruthy();
-  expect(configModule.getDebugSnapshot).toHaveBeenCalled();
-  expect(findByTestID(tree!, 'debug-keyboard-latest').props.children).toContain(
-    'reloadState status=inactive',
-  );
-  expect(findByTestID(tree!, 'debug-keyboard-log').props.children).toContain(
-    'openCompanionApp',
-  );
-  expect(findByTestID(tree!, 'debug-companion-log').props.children).toContain(
-    'applicationDidBecomeActive',
-  );
+  expect(queryByTestID(tree!, 'debug-open-button')).toHaveLength(0);
+  expect(queryByTestID(tree!, 'debug-panel')).toHaveLength(0);
+  expect(configModule.getDebugSnapshot).not.toHaveBeenCalled();
 });
 
 test('saves the Gemini API key through the native bridge', async () => {
@@ -807,7 +819,7 @@ test('saves the Gemini API key through the native bridge', async () => {
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   const settingsInput = findTextInputByTestID(tree!, 'api-key-input');
@@ -846,7 +858,7 @@ test('requests Android microphone permission from onboarding on first open when 
   requestPermissionSpy.mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
 
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -874,7 +886,7 @@ test('shows Android microphone setup state and exposes a permission action in on
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -901,7 +913,7 @@ test('keeps the Gemini setup card visible when the API key is already saved', as
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -924,7 +936,7 @@ test('keeps the API key saved on iOS even if the companion session restart fails
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   const settingsInput = findTextInputByTestID(tree!, 'api-key-input');
@@ -965,7 +977,7 @@ test('renders iPhone keyboard guidance and session state on iOS', async () => {
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   expect(findByTestID(tree!, 'session-status-label')).toBeTruthy();
@@ -983,7 +995,7 @@ test('allows collapsing and re-expanding onboarding details on iOS', async () =>
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   expect(findByTestID(tree!, 'ios-enable-help-button')).toBeTruthy();
@@ -1073,7 +1085,7 @@ test('restores persisted section expansion state on relaunch', async () => {
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
     await flushAsyncWork();
   });
 
@@ -1094,7 +1106,7 @@ test('starts the iPhone companion session automatically when a saved key exists'
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   expect(sessionModule.startSession).toHaveBeenCalledTimes(1);
@@ -1114,7 +1126,7 @@ test('opens the API key help link from the setup card', async () => {
   let tree: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(async () => {
-    tree = ReactTestRenderer.create(<App />);
+    tree = renderTrackedApp();
   });
 
   const linkButton = findByTestID(tree!, 'api-key-help-link');
@@ -1142,7 +1154,7 @@ test('refreshes the saved iOS state when native bridges appear after the first r
 
   try {
     await ReactTestRenderer.act(async () => {
-      tree = ReactTestRenderer.create(<App />);
+      tree = renderTrackedApp();
     });
 
     expect(findByTestID(tree!, 'api-key-status-label')).toBeTruthy();
@@ -1196,7 +1208,7 @@ test('retries the iPhone companion session when opened from the session deep lin
   sessionModule.startSession.mockResolvedValueOnce({ isActive: true });
 
   await ReactTestRenderer.act(async () => {
-    ReactTestRenderer.create(<App />);
+    renderTrackedApp();
   });
 
   expect(urlHandler).toBeTruthy();

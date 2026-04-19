@@ -82,7 +82,7 @@ Plyń is a React Native application with native keyboard integrations for speech
 - If the iOS companion session is interrupted or suspended by another app's audio session, the keyboard must stop treating the companion as audio-available until the companion app successfully restores its own audio session.
 - Returning to the companion app after that interruption must retry the companion session automatically so the keyboard can recover without requiring a separate policy engine for keyboard visibility.
 - If iOS cannot provide a valid microphone input format when the companion session starts, the host app must keep running, keep the companion session requested active, and retry audio startup later instead of crashing or discarding the saved key workflow.
-- On iOS, the host app must expose a visible debug entry point in the top onboarding card that opens a debug panel showing the shared handoff state and recent keyboard and companion timelines from the app-group container.
+- On iOS, the host app keeps the shared-state debug panel available for internal verification flows without exposing a visible onboarding button for it in the main companion UI.
 - The host app accepts a `plyn://debug/launch` deep link that opens an in-app full-screen preview of the iOS loading view using the same launch logo artwork and background color for visual verification.
 
 ## Failure handling

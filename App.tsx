@@ -1171,25 +1171,7 @@ function App({
       >
         <View style={styles.onboardingCard}>
           <View style={styles.tokenSummaryHeader}>
-            <View style={styles.debugUnlockTrigger}>
-              <Text style={styles.sectionTitle}>Як гэта працуе</Text>
-              {Platform.OS === 'ios' ? (
-                <Pressable
-                  testID="debug-open-button"
-                  accessibilityLabel="Адкрыць debug панэль"
-                  style={({pressed}) => [
-                    styles.inlineToggle,
-                    styles.debugOpenButton,
-                    pressed && styles.inlineTogglePressed,
-                  ]}
-                  onPress={() => {
-                    setDebugPanelVisible(true);
-                  }}
-                >
-                  <Text style={styles.inlineToggleLabel}>Debug</Text>
-                </Pressable>
-              ) : null}
-            </View>
+            <Text style={styles.sectionTitle}>Як гэта працуе</Text>
             <Pressable
               testID="onboarding-toggle"
               accessibilityLabel={
@@ -2357,13 +2339,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
-  },
-  debugUnlockTrigger: {
-    flex: 1,
-    gap: 8,
-  },
-  debugOpenButton: {
-    alignSelf: 'flex-start',
   },
   sectionChevronButton: {
     minWidth: 44,
