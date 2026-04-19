@@ -461,7 +461,8 @@ final class KeyboardViewController: UIInputViewController {
       transientErrorMessage = nil
       return .failed
     case .inactive:
-      return .sessionRequired
+      transientErrorMessage = nil
+      return sessionState == .responsive ? .ready : .sessionRecovering
     case .ready:
       transientErrorMessage = nil
       return .ready

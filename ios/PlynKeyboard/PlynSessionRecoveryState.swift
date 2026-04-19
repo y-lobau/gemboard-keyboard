@@ -20,17 +20,6 @@ enum PlynCompanionSessionAvailability {
   }
 }
 
-enum PlynCompanionRecoveryLaunch {
-  private static let sessionRecoveryURL = URL(string: "plyn://session")
-
-  static func shouldPersistRecoveryAttemptTimestamp(
-    requestedURL: URL?,
-    didLaunchSucceed: Bool
-  ) -> Bool {
-    didLaunchSucceed && requestedURL == sessionRecoveryURL
-  }
-}
-
 struct PlynSessionRecoveryState {
   private(set) var shouldKeepSessionActive = false
   private(set) var isSuspendedForAppRecording = false

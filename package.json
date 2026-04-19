@@ -7,7 +7,7 @@
     "ios": "react-native run-ios --port 8082",
     "lint": "eslint .",
     "start": "react-native start --port 8082",
-    "test": "jest"
+    "test": "node ./node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@react-native-firebase/analytics": "^23.8.8",

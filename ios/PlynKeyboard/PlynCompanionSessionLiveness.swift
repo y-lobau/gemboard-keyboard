@@ -1,5 +1,16 @@
 import Foundation
 
+enum PlynCompanionRecoveryLaunch {
+  private static let sessionRecoveryURL = URL(string: "plyn://session")
+
+  static func shouldPersistRecoveryAttemptTimestamp(
+    requestedURL: URL?,
+    didLaunchSucceed: Bool
+  ) -> Bool {
+    didLaunchSucceed && requestedURL == sessionRecoveryURL
+  }
+}
+
 enum PlynCompanionSessionLiveness {
   static let handoffWindow: TimeInterval = 5.0
   static let recoveryAttemptWindow: TimeInterval = 6.0
