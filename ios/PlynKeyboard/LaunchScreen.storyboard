@@ -17,17 +17,15 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="LaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="V7c-Ij-vHX">
-                                <rect key="frame" x="27.5" y="173.5" width="320" height="320"/>
+                                <rect key="frame" x="24" y="259.5" width="327" height="148.5"/>
                             </imageView>
                         </subviews>
                         <color key="backgroundColor" red="0.2901960784" green="0.3490196078" blue="0.2588235294" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
-                            <constraint firstItem="V7c-Ij-vHX" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="6At-z9-OLQ"/>
                             <constraint firstItem="V7c-Ij-vHX" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="L3w-v6-YM3"/>
-                            <constraint firstItem="V7c-Ij-vHX" firstAttribute="width" constant="320" id="hbN-Zb-BUl"/>
-                            <constraint firstItem="V7c-Ij-vHX" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="Bcu-3y-fUS" secondAttribute="leading" constant="24" id="oJ1-Sj-uZi"/>
-                            <constraint firstItem="Bcu-3y-fUS" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="V7c-Ij-vHX" secondAttribute="trailing" constant="24" id="u0m-Aj-m3r"/>
-                            <constraint firstItem="V7c-Ij-vHX" firstAttribute="height" secondItem="V7c-Ij-vHX" secondAttribute="width" id="yT5-7h-s0w"/>
+                            <constraint firstItem="V7c-Ij-vHX" firstAttribute="leading" secondItem="Bcu-3y-fUS" secondAttribute="leading" constant="24" id="oJ1-Sj-uZi"/>
+                            <constraint firstItem="Bcu-3y-fUS" firstAttribute="trailing" secondItem="V7c-Ij-vHX" secondAttribute="trailing" constant="24" id="u0m-Aj-m3r"/>
+                            <constraint firstItem="V7c-Ij-vHX" firstAttribute="height" secondItem="V7c-Ij-vHX" secondAttribute="width" multiplier="151:333" id="yT5-7h-s0w"/>
                         </constraints>
                         <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
                     </view>
@@ -38,6 +36,6 @@
         </scene>
     </scenes>
     <resources>
-        <image name="LaunchLogo" width="1024" height="1024"/>
+        <image name="LaunchLogo" width="333" height="151"/>
     </resources>
 </document>

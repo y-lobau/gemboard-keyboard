@@ -1179,7 +1179,7 @@ function App({
                   ? 'Схаваць раздзел Як гэта працуе'
                   : 'Паказаць раздзел Як гэта працуе'
               }
-              style={({pressed}) => [
+              style={({ pressed }) => [
                 styles.sectionChevronButton,
                 pressed && styles.inlineTogglePressed,
               ]}
@@ -1197,11 +1197,6 @@ function App({
               <Text style={styles.infoLead}>
                 Plyń дапамагае хутка пераўтвараць голас у беларускі тэкст.
               </Text>
-              <Text style={styles.infoCopy}>
-                Калі кампаньён актыўны, запіс хутчэй апрацоўваецца і вяртаецца
-                гатовым тэкстам без лішніх крокаў.
-              </Text>
-
               {Platform.OS === 'android' ? (
                 <>
                   <Pressable
@@ -1451,7 +1446,7 @@ function App({
                 <Pressable
                   testID="token-summary-reset-button"
                   accessibilityLabel="Скінуць статыстыку транскрыпцыі"
-                  style={({pressed}) => [
+                  style={({ pressed }) => [
                     styles.tokenSummaryResetButton,
                     pressed && styles.inlineTogglePressed,
                   ]}
@@ -1459,7 +1454,9 @@ function App({
                     void handleResetTokenUsageSummary();
                   }}
                 >
-                  <Text style={styles.tokenSummaryResetButtonText}>Скінуць</Text>
+                  <Text style={styles.tokenSummaryResetButtonText}>
+                    Скінуць
+                  </Text>
                 </Pressable>
                 <Text style={styles.tokenSummaryColumnTitle}>токены/$</Text>
               </View>
@@ -1484,7 +1481,6 @@ function App({
             </View>
           ) : null}
         </View>
-
       </ScrollView>
       {Platform.OS === 'ios' ? (
         <Modal
@@ -1506,13 +1502,15 @@ function App({
                 <Pressable
                   testID="debug-panel-close"
                   accessibilityLabel="Схаваць debug панэль"
-                  style={({pressed}) => [
+                  style={({ pressed }) => [
                     styles.tokenSummaryResetButton,
                     pressed && styles.inlineTogglePressed,
                   ]}
                   onPress={() => setDebugPanelVisible(false)}
                 >
-                  <Text style={styles.tokenSummaryResetButtonText}>Схаваць</Text>
+                  <Text style={styles.tokenSummaryResetButtonText}>
+                    Схаваць
+                  </Text>
                 </Pressable>
               </View>
               <Text style={styles.tokenSummaryCaption}>
@@ -1527,7 +1525,7 @@ function App({
                   <Pressable
                     testID="debug-refresh-button"
                     accessibilityLabel="Абнавіць debug стан"
-                    style={({pressed}) => [
+                    style={({ pressed }) => [
                       styles.secondaryButton,
                       styles.debugActionButton,
                       pressed && styles.secondaryButtonPressed,
@@ -1545,7 +1543,7 @@ function App({
                   <Pressable
                     testID="debug-clear-button"
                     accessibilityLabel="Ачысціць debug логі"
-                    style={({pressed}) => [
+                    style={({ pressed }) => [
                       styles.secondaryButton,
                       styles.debugActionButton,
                       pressed && styles.secondaryButtonPressed,
@@ -1560,39 +1558,71 @@ function App({
                   </Pressable>
                 </View>
                 <View style={styles.debugFactsGrid}>
-                  {renderDebugFact('App Group', debugSnapshot.appGroupIdentifier || 'n/a')}
+                  {renderDebugFact(
+                    'App Group',
+                    debugSnapshot.appGroupIdentifier || 'n/a',
+                  )}
                   {renderDebugFact(
                     'Shared defaults',
                     debugSnapshot.usesAppGroupDefaults ? 'yes' : 'no',
                   )}
-                  {renderDebugFact('Session active', debugSnapshot.sessionActive ? 'yes' : 'no')}
-                  {renderDebugFact('Keyboard visible', debugSnapshot.keyboardVisible ? 'yes' : 'no')}
-                  {renderDebugFact('Keyboard status', debugSnapshot.keyboardStatus)}
-                  {renderDebugFact('Keyboard command', debugSnapshot.keyboardCommand)}
+                  {renderDebugFact(
+                    'Session active',
+                    debugSnapshot.sessionActive ? 'yes' : 'no',
+                  )}
+                  {renderDebugFact(
+                    'Keyboard visible',
+                    debugSnapshot.keyboardVisible ? 'yes' : 'no',
+                  )}
+                  {renderDebugFact(
+                    'Keyboard status',
+                    debugSnapshot.keyboardStatus,
+                  )}
+                  {renderDebugFact(
+                    'Keyboard command',
+                    debugSnapshot.keyboardCommand,
+                  )}
                   {renderDebugFact(
                     'Recovery attempt',
-                    formatDebugTimestamp(debugSnapshot.sessionRecoveryAttemptUpdatedAt),
+                    formatDebugTimestamp(
+                      debugSnapshot.sessionRecoveryAttemptUpdatedAt,
+                    ),
                   )}
                   {renderDebugFact(
                     'Heartbeat',
-                    formatDebugTimestamp(debugSnapshot.sessionHeartbeatUpdatedAt),
+                    formatDebugTimestamp(
+                      debugSnapshot.sessionHeartbeatUpdatedAt,
+                    ),
                   )}
                 </View>
                 <View style={styles.debugLogSection}>
-                  <Text style={styles.tokenSummarySectionTitle}>Keyboard latest</Text>
-                  <Text testID="debug-keyboard-latest" style={styles.debugLogText}>
-                    {debugSnapshot.keyboardLaunchDebug || 'No keyboard event yet.'}
+                  <Text style={styles.tokenSummarySectionTitle}>
+                    Keyboard latest
+                  </Text>
+                  <Text
+                    testID="debug-keyboard-latest"
+                    style={styles.debugLogText}
+                  >
+                    {debugSnapshot.keyboardLaunchDebug ||
+                      'No keyboard event yet.'}
                   </Text>
                 </View>
                 <View style={styles.debugLogSection}>
-                  <Text style={styles.tokenSummarySectionTitle}>Keyboard timeline</Text>
+                  <Text style={styles.tokenSummarySectionTitle}>
+                    Keyboard timeline
+                  </Text>
                   <Text testID="debug-keyboard-log" style={styles.debugLogText}>
                     {debugSnapshot.keyboardDebugLog || 'No keyboard log yet.'}
                   </Text>
                 </View>
                 <View style={styles.debugLogSection}>
-                  <Text style={styles.tokenSummarySectionTitle}>Companion timeline</Text>
-                  <Text testID="debug-companion-log" style={styles.debugLogText}>
+                  <Text style={styles.tokenSummarySectionTitle}>
+                    Companion timeline
+                  </Text>
+                  <Text
+                    testID="debug-companion-log"
+                    style={styles.debugLogText}
+                  >
                     {debugSnapshot.companionDebugLog || 'No companion log yet.'}
                   </Text>
                 </View>
@@ -1884,7 +1914,8 @@ function areTokenUsageSummariesEqual(
     left.totalTokens === right.totalTokens &&
     left.requestCount === right.requestCount &&
     left.lastRequest.inputTokens === right.lastRequest.inputTokens &&
-    left.lastRequest.cachedInputTokens === right.lastRequest.cachedInputTokens &&
+    left.lastRequest.cachedInputTokens ===
+      right.lastRequest.cachedInputTokens &&
     left.lastRequest.outputTokens === right.lastRequest.outputTokens &&
     left.lastRequest.totalTokens === right.lastRequest.totalTokens &&
     areModalityBreakdownsEqual(
@@ -1908,7 +1939,9 @@ function areTokenUsageSummariesEqual(
   );
 }
 
-function getOutputTextTokenCount(summary: TokenUsageSummary | TokenUsageSnapshot) {
+function getOutputTextTokenCount(
+  summary: TokenUsageSummary | TokenUsageSnapshot,
+) {
   const explicitOutputTotal = Object.values(summary.outputByModality).reduce(
     (total, value) => total + value,
     0,
@@ -1933,7 +1966,10 @@ function getAverageTokenUsageSnapshot(
   summary: TokenUsageSummary,
 ): TokenUsageSnapshot {
   return {
-    inputTokens: getAveragePerRequest(summary.inputTokens, summary.requestCount),
+    inputTokens: getAveragePerRequest(
+      summary.inputTokens,
+      summary.requestCount,
+    ),
     cachedInputTokens: getAveragePerRequest(
       summary.cachedInputTokens,
       summary.requestCount,
@@ -1942,7 +1978,10 @@ function getAverageTokenUsageSnapshot(
       summary.outputTokens,
       summary.requestCount,
     ),
-    totalTokens: getAveragePerRequest(summary.totalTokens, summary.requestCount),
+    totalTokens: getAveragePerRequest(
+      summary.totalTokens,
+      summary.requestCount,
+    ),
     inputByModality: {
       text: getAveragePerRequest(
         summary.inputByModality.text,
@@ -2078,9 +2117,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   launchDebugLogo: {
-    width: 320,
-    height: 320,
-    maxWidth: '100%',
+    width: '100%',
+    aspectRatio: 333 / 151,
+    maxWidth: 420,
   },
   screen: {
     paddingHorizontal: 18,
@@ -2272,7 +2311,7 @@ const styles = StyleSheet.create({
     gap: 12,
     shadowColor: '#2d241e',
     shadowOpacity: 0.18,
-    shadowOffset: {width: 0, height: 12},
+    shadowOffset: { width: 0, height: 12 },
     shadowRadius: 24,
     elevation: 10,
   },

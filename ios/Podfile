@@ -7,14 +7,9 @@ require Pod::Executable.execute_command('node', ['-p',
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
-use_modular_headers!
 $RNFirebaseAnalyticsWithoutAdIdSupport = true
-
-# Keep fast prebuilt React Native artifacts, but download and wire in their
-# matching binaries while we generate standalone dSYMs during archive builds.
-ENV['RCT_USE_RN_DEP'] = '1'
-ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
-ENV['RCT_SYMBOLICATE_PREBUILT_FRAMEWORKS'] = '0'
+ENV['RCT_USE_RN_DEP'] = '0'
+ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
 
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
@@ -22,8 +17,13 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
-target 'PlyńKeyboard' do
+target 'PlynKeyboard' do
   config = use_native_modules!
+
+  pod 'FirebaseABTesting', :modular_headers => true
+  pod 'GoogleDataTransport', :modular_headers => true
+  pod 'GoogleUtilities', :modular_headers => true
+  pod 'nanopb', :modular_headers => true
 
   use_react_native!(
     :path => config[:reactNativePath],
@@ -55,7 +55,7 @@ target 'PlyńKeyboard' do
       end
 
       aggregate_target.user_targets.each do |user_target|
-        next unless user_target.name == 'PlyńKeyboard'
+        next unless user_target.name == 'PlynKeyboard'
 
         phase_name = '[CP-User] Prepare React Native framework dSYMs'
         phase = user_target.shell_script_build_phases.find { |build_phase| build_phase.name == phase_name }
