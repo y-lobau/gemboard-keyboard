@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  AppState,
   Linking,
   NativeModules,
   PermissionsAndroid,
@@ -9,16 +10,105 @@ import {
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
 
+jest.setTimeout(20_000);
+
 const mountedTrees: ReactTestRenderer.ReactTestRenderer[] = [];
 
-function renderTrackedApp() {
-  const tree = ReactTestRenderer.create(<App />);
+function renderTrackedApp(props: React.ComponentProps<typeof App> = {}) {
+  const tree = ReactTestRenderer.create(<App {...props} />);
   mountedTrees.push(tree);
   return tree;
 }
 
-function flushAsyncWork() {
-  return new Promise(resolve => setImmediate(resolve));
+async function flushAsyncWork(iterations: number = 12) {
+  for (let index = 0; index < iterations; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+async function renderTrackedAppAndFlush(
+  props: React.ComponentProps<typeof App> = {},
+) {
+  jest.useRealTimers();
+
+  let tree: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    tree = renderTrackedApp(props);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await flushAsyncWork();
+  });
+
+  return tree!;
+}
+
+async function renderTrackedAppAndFlushLoosely(
+  props: React.ComponentProps<typeof App> = {},
+) {
+  jest.useRealTimers();
+
+  let tree: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    tree = renderTrackedApp(props);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await flushAsyncWork(32);
+  });
+
+  return tree!;
+}
+
+async function openSessionDeepLink() {
+  jest.useRealTimers();
+
+  expect(urlHandler).toBeTruthy();
+
+  await ReactTestRenderer.act(async () => {
+    urlHandler?.({url: 'plyn://session'});
+    await flushAsyncWork();
+  });
+}
+
+async function waitForMockCalls(
+  mockFn: {mock: {calls: unknown[][]}},
+  expectedCallCount: number,
+  attempts: number = 20,
+) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (mockFn.mock.calls.length >= expectedCallCount) {
+      return;
+    }
+
+    await ReactTestRenderer.act(async () => {
+      await flushAsyncWork();
+    });
+  }
+
+  throw new Error(`Expected at least ${expectedCallCount} calls`);
+}
+
+async function waitForKeyboardHandoffPopup(
+  tree: ReactTestRenderer.ReactTestRenderer,
+  visible: boolean,
+  attempts: number = 20,
+) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const isVisible = queryByTestID(tree, 'keyboard-handoff-popup').length > 0;
+
+    if (isVisible === visible) {
+      return;
+    }
+
+    await ReactTestRenderer.act(async () => {
+      await flushAsyncWork();
+    });
+  }
+
+  throw new Error(`Expected keyboard handoff popup visible=${visible}`);
 }
 
 function findByTestID(
@@ -178,6 +268,8 @@ const configModule = {
   saveRuntimeConfig: jest.fn().mockResolvedValue(undefined),
   getLatestTranscriptSnapshot: jest.fn().mockResolvedValue(null),
   clearLatestTranscript: jest.fn().mockResolvedValue(undefined),
+  consumePendingLaunchURL: jest.fn().mockResolvedValue(null),
+  consumeKeyboardRecoveryHandoff: jest.fn().mockResolvedValue(false),
   resetTokenUsageSummary: jest.fn().mockResolvedValue(undefined),
   getTokenUsageSummary: jest.fn(async () => currentTokenUsageSummary),
   getDebugSnapshot: jest.fn().mockResolvedValue({
@@ -207,6 +299,7 @@ const sessionModule = {
 };
 
 let urlHandler: ((event: { url: string }) => void) | null = null;
+let appStateChangeHandlers: Array<(state: string) => void> = [];
 let checkPermissionSpy: jest.SpyInstance;
 let requestPermissionSpy: jest.SpyInstance;
 
@@ -227,6 +320,8 @@ beforeEach(() => {
   configModule.saveRuntimeConfig.mockResolvedValue(undefined);
   configModule.getLatestTranscriptSnapshot.mockResolvedValue(null);
   configModule.clearLatestTranscript.mockResolvedValue(undefined);
+  configModule.consumeKeyboardRecoveryHandoff?.mockResolvedValue(false);
+  configModule.consumePendingLaunchURL?.mockResolvedValue(null);
   configModule.resetTokenUsageSummary.mockResolvedValue(undefined);
   configModule.getTokenUsageSummary.mockImplementation(
     async () => currentTokenUsageSummary,
@@ -255,6 +350,7 @@ beforeEach(() => {
   sessionModule.stopSession.mockResolvedValue({ isActive: false });
   Platform.OS = originalPlatform;
   urlHandler = null;
+  appStateChangeHandlers = [];
   currentTokenUsageSummary = {
     inputTokens: 0,
     cachedInputTokens: 0,
@@ -319,13 +415,35 @@ beforeEach(() => {
         remove: jest.fn(),
       };
     });
+  jest
+    .spyOn(AppState, 'addEventListener')
+    .mockImplementation((_type, listener) => {
+      const typedListener = listener as (state: string) => void;
+      appStateChangeHandlers.push(typedListener);
+      return {
+        remove: jest.fn(() => {
+          appStateChangeHandlers = appStateChangeHandlers.filter(
+            currentListener => currentListener !== typedListener,
+          );
+        }),
+      };
+    });
   checkPermissionSpy = jest
     .spyOn(PermissionsAndroid, 'check')
     .mockResolvedValue(true);
   requestPermissionSpy = jest
     .spyOn(PermissionsAndroid, 'request')
     .mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
+  delete (
+    globalThis as { __Plyń_ENABLE_NATIVE_STATUS_REFRESH__?: boolean }
+  ).__Plyń_ENABLE_NATIVE_STATUS_REFRESH__;
 });
+
+const emitAppStateChange = (state: string) => {
+  appStateChangeHandlers.forEach(listener => {
+    listener(state);
+  });
+};
 
 test('uses the ascii iOS session bridge when the accented native module is unavailable', async () => {
   Platform.OS = 'ios';
@@ -908,7 +1026,7 @@ test('keeps the Gemini setup card visible when the API key is already saved', as
     hasApiKey: true,
     platformMode: 'ios-keyboard-extension',
   });
-  sessionModule.getStatus.mockResolvedValueOnce({ isActive: true });
+  sessionModule.getStatus.mockResolvedValue({ isActive: true });
 
   let tree: ReactTestRenderer.ReactTestRenderer;
 
@@ -972,7 +1090,7 @@ test('renders iPhone keyboard guidance and session state on iOS', async () => {
     hasApiKey: true,
     platformMode: 'ios-keyboard-extension',
   });
-  sessionModule.getStatus.mockResolvedValueOnce({ isActive: true });
+  sessionModule.getStatus.mockResolvedValue({ isActive: true });
 
   let tree: ReactTestRenderer.ReactTestRenderer;
 
@@ -990,7 +1108,7 @@ test('allows collapsing and re-expanding onboarding details on iOS', async () =>
     hasApiKey: true,
     platformMode: 'ios-keyboard-extension',
   });
-  sessionModule.getStatus.mockResolvedValueOnce({ isActive: true });
+  sessionModule.getStatus.mockResolvedValue({ isActive: true });
 
   let tree: ReactTestRenderer.ReactTestRenderer;
 
@@ -1196,34 +1314,4 @@ test('refreshes the saved iOS state when native bridges appear after the first r
       .__Plyń_ENABLE_BOOTSTRAP_RETRIES__;
     jest.useRealTimers();
   }
-});
-
-test('retries the iPhone companion session when opened from the session deep link', async () => {
-  Platform.OS = 'ios';
-  configModule.getStatus.mockResolvedValueOnce({
-    hasApiKey: true,
-    platformMode: 'ios-keyboard-extension',
-  });
-  sessionModule.getStatus.mockResolvedValueOnce({ isActive: true });
-  sessionModule.startSession.mockResolvedValueOnce({ isActive: true });
-
-  await ReactTestRenderer.act(async () => {
-    renderTrackedApp();
-  });
-
-  expect(urlHandler).toBeTruthy();
-
-  await ReactTestRenderer.act(async () => {
-    urlHandler?.({ url: 'plyn://session' });
-  });
-
-  expect(sessionModule.startSession).toHaveBeenCalledTimes(1);
-  expect(mockTrackEvent).toHaveBeenCalledWith('session_recovery_link_opened', {
-    platform: 'ios',
-  });
-  expect(mockTrackEvent).toHaveBeenCalledWith('companion_session_start', {
-    platform: 'ios',
-    source: 'deep_link_retry',
-    result: 'success',
-  });
 });

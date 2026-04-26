@@ -10,11 +10,13 @@ final class PlyńAppConfig: NSObject {
     let sessionActive = PlyńE2EOverrides.currentSessionActive(
       fallback: PlynSharedStore.isSessionActive()
     )
+    let keyboardRecoveryHandoffPending = PlynSharedStore.consumeKeyboardRecoveryHandoff()
 
     resolve([
       "hasApiKey": hasApiKey,
       "sessionActive": sessionActive,
       "platformMode": "ios-keyboard-extension",
+      "keyboardRecoveryHandoffPending": keyboardRecoveryHandoffPending,
     ])
   }
 
@@ -83,6 +85,16 @@ final class PlyńAppConfig: NSObject {
   }
 
   @objc
+  func consumePendingLaunchURL(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    resolve(PlynPendingLaunchURLStore.consume())
+  }
+
+  @objc
+  func consumeKeyboardRecoveryHandoff(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    resolve(PlynSharedStore.consumeKeyboardRecoveryHandoff())
+  }
+
+  @objc
   func getTokenUsageSummary(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
     resolve(PlynSharedStore.tokenUsageSummary().asDictionary())
   }
@@ -101,6 +113,12 @@ final class PlyńAppConfig: NSObject {
   @objc
   func clearDebugSnapshot(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
     PlynSharedStore.clearDebugSnapshot()
+    resolve(nil)
+  }
+
+  @objc
+  func appendCompanionDebugLog(_ message: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    PlynSharedStore.appendCompanionDebugLog(message)
     resolve(nil)
   }
 }
@@ -145,6 +163,16 @@ final class PlyńConfig: NSObject {
   }
 
   @objc
+  func consumePendingLaunchURL(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    appConfig.consumePendingLaunchURL(resolve, rejecter: reject)
+  }
+
+  @objc
+  func consumeKeyboardRecoveryHandoff(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    appConfig.consumeKeyboardRecoveryHandoff(resolve, rejecter: reject)
+  }
+
+  @objc
   func getTokenUsageSummary(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
     appConfig.getTokenUsageSummary(resolve, rejecter: reject)
   }
@@ -162,5 +190,10 @@ final class PlyńConfig: NSObject {
   @objc
   func clearDebugSnapshot(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
     appConfig.clearDebugSnapshot(resolve, rejecter: reject)
+  }
+
+  @objc
+  func appendCompanionDebugLog(_ message: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    appConfig.appendCompanionDebugLog(message, resolver: resolve, rejecter: reject)
   }
 }

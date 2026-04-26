@@ -42,6 +42,7 @@ type NativeStatus = {
   hasApiKey: boolean;
   sessionActive?: boolean;
   platformMode: 'android-ime' | 'ios-keyboard-extension' | 'unsupported';
+  keyboardRecoveryHandoffPending?: boolean;
 };
 
 type ConfigModule = {
@@ -57,10 +58,13 @@ type ConfigModule = {
   }) => Promise<void>;
   getLatestTranscriptSnapshot: () => Promise<TranscriptSnapshot | null>;
   clearLatestTranscript: () => Promise<void>;
+  consumePendingLaunchURL?: () => Promise<string | null>;
+  consumeKeyboardRecoveryHandoff: () => Promise<boolean>;
   resetTokenUsageSummary: () => Promise<void>;
   getTokenUsageSummary: () => Promise<TokenUsageSummary>;
   getDebugSnapshot?: () => Promise<DebugSnapshot>;
   clearDebugSnapshot?: () => Promise<void>;
+  appendCompanionDebugLog?: (message: string) => Promise<void>;
 };
 
 type DebugSnapshot = {
@@ -150,6 +154,8 @@ type AppProps = {
   initialHasApiKey?: boolean;
   initialSessionActive?: boolean;
   initialPlatformMode?: NativeStatus['platformMode'];
+  initialLaunchURL?: string | null;
+  initialKeyboardRecoveryHandoff?: boolean;
 };
 
 const API_KEY_URL = 'https://aistudio.google.com/api-keys';
@@ -162,6 +168,7 @@ const fallbackConfigModule: ConfigModule = {
     sessionActive: false,
     platformMode:
       Platform.OS === 'ios' ? 'ios-keyboard-extension' : 'android-ime',
+    keyboardRecoveryHandoffPending: false,
   }),
   getSectionExpansionState: async () => ({}),
   saveSectionExpansionState: async () => undefined,
@@ -169,10 +176,13 @@ const fallbackConfigModule: ConfigModule = {
   saveRuntimeConfig: async () => undefined,
   getLatestTranscriptSnapshot: async () => null,
   clearLatestTranscript: async () => undefined,
+  consumePendingLaunchURL: async () => null,
+  consumeKeyboardRecoveryHandoff: async () => false,
   resetTokenUsageSummary: async () => undefined,
   getTokenUsageSummary: async () => emptyTokenUsageSummary,
   getDebugSnapshot: async () => emptyDebugSnapshot,
   clearDebugSnapshot: async () => undefined,
+  appendCompanionDebugLog: async () => undefined,
 };
 
 const fallbackSessionModule: SessionModule = {
@@ -235,6 +245,17 @@ function shouldRunBootstrapRetries() {
     Boolean(
       (globalThis as { __Plyń_ENABLE_BOOTSTRAP_RETRIES__?: boolean })
         .__Plyń_ENABLE_BOOTSTRAP_RETRIES__,
+    )
+  );
+}
+
+function shouldRefreshNativeStatusOnForeground() {
+  return (
+    !isTestEnvironment ||
+    Boolean(
+      (globalThis as {
+        __Plyń_ENABLE_NATIVE_STATUS_REFRESH__?: boolean;
+      }).__Plyń_ENABLE_NATIVE_STATUS_REFRESH__,
     )
   );
 }
@@ -310,6 +331,25 @@ function createConfigModule(fallbackStatus: NativeStatus): ConfigModule {
         return nativeModule.clearLatestTranscript();
       }
     },
+    consumePendingLaunchURL: async () => {
+      const nativeModule = getConfigNativeModule();
+
+      if (nativeModule?.consumePendingLaunchURL) {
+        const pendingLaunchURL = await nativeModule.consumePendingLaunchURL();
+        return typeof pendingLaunchURL === 'string' ? pendingLaunchURL : null;
+      }
+
+      return null;
+    },
+    consumeKeyboardRecoveryHandoff: async () => {
+      const nativeModule = getConfigNativeModule();
+
+      if (nativeModule?.consumeKeyboardRecoveryHandoff) {
+        return Boolean(await nativeModule.consumeKeyboardRecoveryHandoff());
+      }
+
+      return false;
+    },
     resetTokenUsageSummary: async () => {
       const nativeModule = getConfigNativeModule();
 
@@ -342,6 +382,13 @@ function createConfigModule(fallbackStatus: NativeStatus): ConfigModule {
 
       if (nativeModule?.clearDebugSnapshot) {
         return nativeModule.clearDebugSnapshot();
+      }
+    },
+    appendCompanionDebugLog: async message => {
+      const nativeModule = getConfigNativeModule();
+
+      if (nativeModule?.appendCompanionDebugLog) {
+        return nativeModule.appendCompanionDebugLog(message);
       }
     },
   };
@@ -384,6 +431,8 @@ function App({
   initialHasApiKey = false,
   initialSessionActive = false,
   initialPlatformMode = 'unsupported',
+  initialLaunchURL = null,
+  initialKeyboardRecoveryHandoff = false,
 }: AppProps): React.JSX.Element {
   const { height } = useWindowDimensions();
   const configModule = useMemo<ConfigModule>(
@@ -415,6 +464,9 @@ function App({
   const [saving, setSaving] = useState(false);
   const [sessionActive, setSessionActive] = useState(initialSessionActive);
   const [sessionBusy, setSessionBusy] = useState(false);
+  const [keyboardHandoffVisible, setKeyboardHandoffVisible] = useState(
+    initialKeyboardRecoveryHandoff && initialSessionActive,
+  );
   const [tokenUsageSummary, setTokenUsageSummary] = useState<TokenUsageSummary>(
     emptyTokenUsageSummary,
   );
@@ -429,6 +481,7 @@ function App({
     useState(false);
   const sectionStateHydratedRef = useRef(false);
   const androidPermissionPromptedRef = useRef(false);
+  const keyboardHandoffRecoveryRef = useRef<Promise<boolean> | null>(null);
   const readyForKeyboardUse =
     Platform.OS === 'ios'
       ? sessionActive
@@ -532,6 +585,130 @@ function App({
     }
   }, [configModule]);
 
+  const recoverIosSessionForDeepLink = useCallback(async () => {
+    const currentStatus = await sessionModule.getStatus();
+
+    if (currentStatus.isActive) {
+      return currentStatus;
+    }
+
+    return sessionModule.startSession();
+  }, [sessionModule]);
+
+  const completeIosKeyboardHandoff = useCallback(async () => {
+    try {
+      setSessionBusy(true);
+
+      const nextStatus = await recoverIosSessionForDeepLink();
+
+      setSessionActive(nextStatus.isActive);
+      setKeyboardHandoffVisible(nextStatus.isActive);
+      setStatusKind(nextStatus.isActive ? 'success' : 'error');
+      setStatusMessage(
+        nextStatus.isActive
+          ? 'Кампаньён актыўны. Вярніцеся да клавіятуры.'
+          : 'Не ўдалося аднавіць кампаньён.',
+      );
+
+      await trackEvent('companion_session_start', {
+        platform: 'ios',
+        source: 'keyboard_handoff_marker',
+        result: nextStatus.isActive ? 'success' : 'error',
+      });
+
+      return nextStatus.isActive;
+    } catch (error) {
+      setKeyboardHandoffVisible(false);
+      setStatusKind('error');
+      setStatusMessage(getErrorMessage(error));
+
+      await trackEvent('companion_session_start', {
+        platform: 'ios',
+        source: 'keyboard_handoff_marker',
+        result: 'error',
+      });
+
+      return false;
+    } finally {
+      setSessionBusy(false);
+    }
+  }, [recoverIosSessionForDeepLink]);
+
+  const recoverIosKeyboardHandoff = useCallback(async () => {
+    if (keyboardHandoffRecoveryRef.current) {
+      return keyboardHandoffRecoveryRef.current;
+    }
+
+    const recoveryPromise = (async () => {
+      try {
+        await configModule.appendCompanionDebugLog?.(
+          'JS: recoverIosKeyboardHandoff requested',
+        );
+        const shouldShowKeyboardHandoff =
+          await configModule.consumeKeyboardRecoveryHandoff();
+
+        await configModule.appendCompanionDebugLog?.(
+          `JS: consumeKeyboardRecoveryHandoff -> ${shouldShowKeyboardHandoff}`,
+        );
+
+        if (!shouldShowKeyboardHandoff) {
+          return false;
+        }
+
+        const didRecover = await completeIosKeyboardHandoff();
+
+        await configModule.appendCompanionDebugLog?.(
+          `JS: keyboard handoff recovery completed active=${didRecover}`,
+        );
+
+        return didRecover;
+      } catch (error) {
+        setKeyboardHandoffVisible(false);
+        setStatusKind('error');
+        setStatusMessage(getErrorMessage(error));
+
+        await trackEvent('companion_session_start', {
+          platform: 'ios',
+          source: 'keyboard_handoff_marker',
+          result: 'error',
+        });
+
+        await configModule.appendCompanionDebugLog?.(
+          `JS: keyboard handoff recovery failed ${getErrorMessage(error)}`,
+        );
+
+        return false;
+      } finally {
+        setSessionBusy(false);
+        keyboardHandoffRecoveryRef.current = null;
+      }
+    })();
+
+    keyboardHandoffRecoveryRef.current = recoveryPromise;
+    return recoveryPromise;
+  }, [completeIosKeyboardHandoff, configModule]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') {
+      return;
+    }
+
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        void recoverIosKeyboardHandoff();
+        return;
+      }
+
+      if (state === 'background') {
+        setKeyboardHandoffVisible(false);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [recoverIosKeyboardHandoff]);
+
   useEffect(() => {
     let active = true;
     const retryTimers: ReturnType<typeof setTimeout>[] = [];
@@ -571,6 +748,18 @@ function App({
         setHasApiKey(resolvedHasApiKey);
         setPlatformMode(resolvedPlatformMode);
         setSessionActive(currentSession);
+
+        if (
+          Platform.OS === 'ios' &&
+          status.keyboardRecoveryHandoffPending &&
+          currentSession
+        ) {
+          setKeyboardHandoffVisible(true);
+          setStatusKind('success');
+          setStatusMessage('Кампаньён актыўны. Вярніцеся да клавіятуры.');
+          return;
+        }
+
         setStatusKind('neutral');
         setStatusMessage(
           buildStatusMessage({
@@ -619,7 +808,7 @@ function App({
   ]);
 
   useEffect(() => {
-    if (isTestEnvironment) {
+    if (!shouldRefreshNativeStatusOnForeground()) {
       return;
     }
 
@@ -638,6 +827,17 @@ function App({
 
         if (cancelled) {
           return;
+        }
+
+        if (
+          Platform.OS === 'ios' &&
+          status.keyboardRecoveryHandoffPending
+        ) {
+          await completeIosKeyboardHandoff();
+
+          if (cancelled) {
+            return;
+          }
         }
 
         setHasApiKey(current =>
@@ -838,7 +1038,13 @@ function App({
 
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') {
+        void recoverIosKeyboardHandoff();
         void refreshSession();
+        return;
+      }
+
+      if (state === 'background') {
+        setKeyboardHandoffVisible(false);
       }
     });
 
@@ -853,12 +1059,15 @@ function App({
       subscription.remove();
       clearInterval(interval);
     };
-  }, [sessionModule]);
+  }, [recoverIosKeyboardHandoff, sessionModule]);
 
   useEffect(() => {
     let active = true;
 
-    const handleUrl = async (url: string | null) => {
+    const handleUrl = async (
+      url: string | null,
+      options?: {preferInitialKeyboardHandoff?: boolean},
+    ) => {
       if (!url) {
         return;
       }
@@ -906,52 +1115,59 @@ function App({
         return;
       }
 
-      setSessionBusy(true);
+      const recoveredFromKeyboardHandoff =
+        options?.preferInitialKeyboardHandoff && initialKeyboardRecoveryHandoff
+          ? await completeIosKeyboardHandoff()
+          : await recoverIosKeyboardHandoff();
 
-      try {
-        const nextStatus = await sessionModule.startSession();
+      if (!active) {
+        return;
+      }
 
-        if (!active) {
-          return;
-        }
-
-        setSessionActive(nextStatus.isActive);
-        setStatusKind(nextStatus.isActive ? 'success' : 'error');
-        setStatusMessage(
-          nextStatus.isActive
-            ? 'Кампаньён актыўны. Вярніцеся да клавіятуры.'
-            : 'Не ўдалося аднавіць кампаньён.',
-        );
+      if (recoveredFromKeyboardHandoff) {
         await trackEvent('session_recovery_link_opened', {
           platform: 'ios',
         });
-        await trackEvent('companion_session_start', {
-          platform: 'ios',
-          source: 'deep_link_retry',
-          result: nextStatus.isActive ? 'success' : 'error',
-        });
-      } catch (error) {
-        if (active) {
-          setStatusKind('error');
-          setStatusMessage(getErrorMessage(error));
-        }
-
-        await trackEvent('session_recovery_link_opened', {
-          platform: 'ios',
-        });
-        await trackEvent('companion_session_start', {
-          platform: 'ios',
-          source: 'deep_link_retry',
-          result: 'error',
-        });
-      } finally {
-        if (active) {
-          setSessionBusy(false);
-        }
       }
     };
 
-    void Linking.getInitialURL().then(handleUrl);
+    void (async () => {
+      let handledLaunchSessionURL = false;
+
+      await configModule.appendCompanionDebugLog?.(
+        `JS: startup initialLaunchURL=${initialLaunchURL ?? '<null>'}`,
+      );
+
+      if (initialLaunchURL) {
+        handledLaunchSessionURL = handledLaunchSessionURL || isSessionUrl(initialLaunchURL);
+        await handleUrl(initialLaunchURL, {preferInitialKeyboardHandoff: true});
+      }
+
+      const linkedInitialURL = await Linking.getInitialURL();
+
+      await configModule.appendCompanionDebugLog?.(
+        `JS: startup linkedInitialURL=${linkedInitialURL ?? '<null>'}`,
+      );
+
+      if (
+        linkedInitialURL &&
+        linkedInitialURL !== initialLaunchURL
+      ) {
+        handledLaunchSessionURL = handledLaunchSessionURL || isSessionUrl(linkedInitialURL);
+        await handleUrl(linkedInitialURL, {preferInitialKeyboardHandoff: true});
+      }
+
+      if (
+        Platform.OS === 'ios' &&
+        !handledLaunchSessionURL &&
+        initialKeyboardRecoveryHandoff
+      ) {
+        await configModule.appendCompanionDebugLog?.(
+          'JS: startup using native-provided keyboard handoff marker',
+        );
+        await completeIosKeyboardHandoff();
+      }
+    })();
     const subscription = Linking.addEventListener('url', event => {
       void handleUrl(event.url);
     });
@@ -961,9 +1177,13 @@ function App({
       subscription.remove();
     };
   }, [
+    configModule,
     hasApiKey,
+    initialKeyboardRecoveryHandoff,
+    initialLaunchURL,
+    completeIosKeyboardHandoff,
+    recoverIosKeyboardHandoff,
     requestAndroidMicrophonePermission,
-    sessionModule,
     syncAndroidMicrophonePermission,
   ]);
 
@@ -1482,6 +1702,51 @@ function App({
           ) : null}
         </View>
       </ScrollView>
+      {Platform.OS === 'ios' && keyboardHandoffVisible ? (
+        <View testID="keyboard-handoff-popup" style={styles.keyboardHandoffOverlay}>
+          <StatusBar
+            barStyle="light-content"
+            backgroundColor={LAUNCH_SCREEN_BACKGROUND}
+          />
+          <View style={styles.keyboardHandoffScreen}>
+            <View style={styles.keyboardHandoffCanvas}>
+              <View style={styles.keyboardHandoffArrowBadge}>
+                <Text testID="keyboard-handoff-arrow" style={styles.keyboardHandoffArrow}>
+                  ←
+                </Text>
+              </View>
+              <Text
+                testID="keyboard-handoff-title"
+                style={styles.keyboardHandoffTitle}
+              >
+                Кампаньён актыўны
+              </Text>
+              <Text style={styles.keyboardHandoffBody}>
+                Правядзіце назад, каб вярнуцца ў праграму з клавіятурай
+                Plyń і працягнуць дыктоўку.
+              </Text>
+              <Text style={styles.keyboardHandoffHint}>
+                Калі хочаце застацца ў Plyń, проста зачыніце гэта акно.
+              </Text>
+            </View>
+            <View style={styles.keyboardHandoffFooter}>
+              <Pressable
+                testID="keyboard-handoff-close-button"
+                accessibilityLabel="Закрыць handoff акно і застацца ў Plyń"
+                style={({ pressed }) => [
+                  styles.keyboardHandoffCloseButton,
+                  pressed && styles.keyboardHandoffCloseButtonPressed,
+                ]}
+                onPress={() => setKeyboardHandoffVisible(false)}
+              >
+                <Text style={styles.keyboardHandoffCloseButtonLabel}>
+                  Закрыць
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
       {Platform.OS === 'ios' ? (
         <Modal
           animationType="slide"
@@ -2120,6 +2385,85 @@ const styles = StyleSheet.create({
     width: '100%',
     aspectRatio: 333 / 151,
     maxWidth: 420,
+  },
+  keyboardHandoffScreen: {
+    flex: 1,
+    backgroundColor: LAUNCH_SCREEN_BACKGROUND,
+    paddingHorizontal: 24,
+    paddingTop: 44,
+    paddingBottom: 28,
+  },
+  keyboardHandoffOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
+  },
+  keyboardHandoffCanvas: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keyboardHandoffArrowBadge: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 248, 239, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 248, 239, 0.28)',
+    marginBottom: 28,
+  },
+  keyboardHandoffArrow: {
+    fontSize: 54,
+    lineHeight: 58,
+    fontWeight: '700',
+    color: '#fff8ef',
+  },
+  keyboardHandoffTitle: {
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '800',
+    color: '#fff8ef',
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  keyboardHandoffBody: {
+    maxWidth: 320,
+    fontSize: 19,
+    lineHeight: 28,
+    fontWeight: '600',
+    color: '#f3eadf',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  keyboardHandoffHint: {
+    maxWidth: 300,
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#d9cec0',
+    textAlign: 'center',
+  },
+  keyboardHandoffFooter: {
+    alignItems: 'center',
+  },
+  keyboardHandoffCloseButton: {
+    minWidth: 180,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff8ef',
+  },
+  keyboardHandoffCloseButtonPressed: {
+    opacity: 0.88,
+  },
+  keyboardHandoffCloseButtonLabel: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: '#32412f',
   },
   screen: {
     paddingHorizontal: 18,

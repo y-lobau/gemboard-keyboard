@@ -37,6 +37,7 @@ enum PlynSharedStore {
   private static let sessionHeartbeatUpdatedAtKey = "ios_session_heartbeat_updated_at"
   private static let sessionRequestedHeartbeatUpdatedAtKey = "ios_session_requested_heartbeat_updated_at"
   private static let sessionRecoveryAttemptedAtKey = "ios_session_recovery_attempted_at"
+  private static let keyboardRecoveryHandoffUpdatedAtKey = "ios_keyboard_recovery_handoff_updated_at"
   private static let keyboardCommandKey = "ios_keyboard_command"
   private static let keyboardCommandUpdatedAtKey = "ios_keyboard_command_updated_at"
   private static let keyboardStatusKey = "ios_keyboard_status"
@@ -85,6 +86,7 @@ enum PlynSharedStore {
   private static let lastRequestTokenOutputDocumentKey = "gemini_last_request_output_document_tokens"
   private static let defaultKeyboardCommandTimeout: TimeInterval = 2.0
   private static let defaultKeyboardTranscriptionTimeout: TimeInterval = 12.0
+  private static let keyboardRecoveryHandoffWindow: TimeInterval = 60.0
 
   enum KeyboardCommand: String {
     case none
@@ -548,6 +550,36 @@ enum PlynSharedStore {
 
   static func sessionRecoveryAttemptTimestamp() -> Date? {
     date(forKey: sessionRecoveryAttemptedAtKey)
+  }
+
+  static func saveKeyboardRecoveryHandoff(date: Date = Date()) {
+    defaults.set(date.timeIntervalSince1970, forKey: keyboardRecoveryHandoffUpdatedAtKey)
+    defaults.synchronize()
+  }
+
+  static func clearKeyboardRecoveryHandoff() {
+    defaults.removeObject(forKey: keyboardRecoveryHandoffUpdatedAtKey)
+    defaults.synchronize()
+  }
+
+  static func hasRecentKeyboardRecoveryHandoff(now: Date = Date()) -> Bool {
+    guard let handoffTimestamp = date(forKey: keyboardRecoveryHandoffUpdatedAtKey) else {
+      return false
+    }
+
+    let handoffAge = now.timeIntervalSince(handoffTimestamp)
+    return handoffAge >= 0 && handoffAge <= keyboardRecoveryHandoffWindow
+  }
+
+  static func consumeKeyboardRecoveryHandoff(now: Date = Date()) -> Bool {
+    guard let handoffTimestamp = date(forKey: keyboardRecoveryHandoffUpdatedAtKey) else {
+      return false
+    }
+
+    clearKeyboardRecoveryHandoff()
+
+    let handoffAge = now.timeIntervalSince(handoffTimestamp)
+    return handoffAge >= 0 && handoffAge <= keyboardRecoveryHandoffWindow
   }
 
   static func saveKeyboardLaunchDebug(_ message: String) {

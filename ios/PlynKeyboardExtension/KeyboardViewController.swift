@@ -910,6 +910,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     transientErrorMessage = nil
+    let preparedKeyboardRecoveryHandoff = prepareKeyboardRecoveryHandoffIfNeeded(for: url)
 
     if openCompanionAppThroughSharedApplication(url) {
       persistRecoveryAttemptTimestampIfNeeded(for: url)
@@ -942,11 +943,23 @@ final class KeyboardViewController: UIInputViewController {
           return
         }
 
+        if preparedKeyboardRecoveryHandoff {
+          PlynSharedStore.clearKeyboardRecoveryHandoff()
+        }
         self.logDebug("all launch paths failed for url=\(url.absoluteString)")
         self.transientErrorMessage = failureMessage
         self.reloadState()
       }
     }
+  }
+
+  private func prepareKeyboardRecoveryHandoffIfNeeded(for url: URL?) -> Bool {
+    guard url == Self.sessionRecoveryURL else {
+      return false
+    }
+
+    PlynSharedStore.saveKeyboardRecoveryHandoff()
+    return true
   }
 
   private func persistRecoveryAttemptTimestampIfNeeded(for url: URL?) {

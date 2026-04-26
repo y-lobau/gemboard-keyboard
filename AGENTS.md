@@ -47,6 +47,22 @@
   tests cover both positive and negative transitions, not only the
   happy path.
 
+## macOS Dev App Permissions
+- For the macOS menu-bar dev app, text insertion depends on macOS TCC
+  trust for Accessibility/Post Events. If System Settings shows
+  Accessibility as enabled but the app still reports it missing, or
+  transcription succeeds but no text is inserted, suspect stale TCC
+  state for the signed app identity/path before changing insertion
+  logic.
+- Rebuilt dev app bundles can keep stale Accessibility/Input Monitoring
+  grants that no longer match the currently installed binary. Use
+  `macos/PlynMac/Scripts/reset_dev_permissions.sh`, relaunch
+  `/Applications/Plyń Dev.app`, then grant permissions fresh from the
+  popover.
+- Do not replace the simple pasteboard + Cmd+V insertion path with
+  complex Accessibility text editing unless there is fresh evidence the
+  simple path fails after TCC trust has been reset and re-granted.
+
 ## Definition of Done (DoD)
 - Before starting any coding task, ensure the user provides a clear, unambiguous DoD.
 - Try to infer the DoD from the conversation history. If it is possible - just proceed with the task. Otherwise ask for aspects that are unclear for DoD and confirm it before proceeding.

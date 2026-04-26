@@ -13,6 +13,16 @@ Plyń is a React Native application with native keyboard integrations for speech
 ## Platform behavior
 
 - Android provides a system keyboard implemented as an `InputMethodService`.
+- macOS provides a native menu-bar companion app for global dictation into the currently focused text field.
+- The macOS companion app is packaged with App Sandbox, network-client, and microphone entitlements suitable for Mac App Store signing.
+- The macOS companion app asks for Microphone, Input Monitoring, and Accessibility/event-posting permissions before global dictation can run.
+- On macOS, holding the Fn/Globe key starts recording globally, releasing it stops recording, sends the captured audio to Gemini, and inserts the Belarusian transcript into the currently active text field.
+- On macOS, each dictation request reads the currently active keyboard input source and asks Gemini to return transcript text in that language, so switching the system keyboard to English produces English output instead of Belarusian output.
+- If macOS cannot identify the active keyboard input language for a dictation request, the macOS companion app falls back to Belarusian output.
+- If a device or keyboard layout does not expose Fn/Globe events to the app, the macOS companion app supports a configurable fallback hold trigger using Control+Option.
+- The macOS text insertion flow must preserve the user's pasteboard contents by restoring the previous pasteboard after inserting the transcript.
+- The macOS dictation flow must never insert a transcript if recording, transcription, or text insertion fails before a successful transcript is available.
+- The macOS dictation flow must remove invisible control and formatting characters from Gemini transcripts before showing or inserting text, while preserving ordinary whitespace such as spaces, tabs, and newlines.
 - All visible UI copy in the host app and the Android keyboard must be shown in Belarusian.
 - The Android keyboard exposes a press-and-hold microphone control, records audio while held, and only starts Gemini transcription after the user releases the microphone.
 - The Android keyboard banner must use the same surface, tray, microphone-button, waveform, and standard-key dimensions as the iOS keyboard banner so both keyboard UIs render with matching compact proportions.
@@ -35,6 +45,7 @@ Plyń is a React Native application with native keyboard integrations for speech
 - The iOS keyboard extension must treat each shared transcript update as the latest full snapshot for the active utterance, replace only its own provisional insertion, and avoid duplicating text or collapsing required spaces if newer snapshots arrive.
 - Streamed transcript assembly must preserve chunk-boundary whitespace emitted by Gemini so words do not merge when a required separator arrives at the end of one chunk or as its own chunk.
 - If the iOS keyboard microphone is pressed while the companion session is inactive, the keyboard must open the companion app so it can restore the session.
+- When the iOS keyboard opens the companion app for session recovery and that recovery succeeds, the companion app must show a fullscreen Belarusian handoff popup with a back-arrow cue, a message that the companion is active, guidance to swipe back to the host app with the keyboard to continue dictation, and a visible close action so the user can stay in the companion app.
 - If the iOS companion audio session is active, the iOS keyboard must keep treating that session as available while the companion continues refreshing its shared audio-session heartbeat in the background.
 - While the iOS companion app still has the companion session requested active, it must also refresh a separate shared companion-presence heartbeat so the keyboard can distinguish "the app is still open and recovering" from "audio is fully available now."
 - If the iOS keyboard launches the companion through the session recovery deep link, the keyboard must keep the session in a short recovery grace window only after some launch path has actually accepted that deep link, while waiting for the first fresh heartbeat from the relaunched companion.
@@ -55,6 +66,7 @@ Plyń is a React Native application with native keyboard integrations for speech
 - The host app connects to Firebase Crashlytics for crash reporting on iOS and Android.
 - Firebase Remote Config defines nine runtime Gemini values for this app: the LLM model name, the system prompt, two keyboard timeout values named `keyboard_command_timeout_seconds` and `keyboard_transcription_timeout_seconds`, and five transcription cost rates named `gemini_cost_input_text`, `gemini_cost_input_audio`, `gemini_cost_input_cache_text`, `gemini_cost_input_cache_audio`, and `gemini_cost_output_text`.
 - On app startup, the host app fetches those Firebase Remote Config values on both iOS and Android, persists the model, system prompt, and keyboard timeout values into native shared storage for the current platform, and uses the cost rates to render dollar totals in the host-app transcription-cost summary.
+- Native iOS and Android keyboard dictation entry points also refresh Firebase Remote Config before or during dictation and write the runtime model, system prompt, and keyboard timeout values into the same native shared storage so the keyboard can run with current server-controlled settings even when the host app has not just refreshed them.
 - On app startup, the host app records analytics events for screen views, Remote Config sync outcomes, key setup or session actions that happen in the companion UI, and initializes Crashlytics collection for the current platform.
 - If Firebase Remote Config cannot be accessed, the host app must send a non-fatal Crashlytics error with context about the failed sync while continuing to use the existing fallback runtime behavior.
 - When a new keyboard dictation session starts, the platform-native dictation flow refreshes Firebase Remote Config before the transcription request is built so the current transcription can use the latest Gemini model and system prompt without requiring a full app relaunch.
@@ -70,6 +82,12 @@ Plyń is a React Native application with native keyboard integrations for speech
 - Android keyboard code reads the persisted Gemini model and system prompt from shared app storage.
 - Android keyboard code records analytics for dictation attempts, blocked states, outcomes, and Gemini latency buckets.
 - Android keyboard code persists Gemini usage metadata from successful transcriptions into shared app storage so the host-app `Кошт транскрыпцыі` summary reflects on-device keyboard usage.
+- The macOS companion app stores its Gemini API key, selected Gemini model, and hold trigger in local app state.
+- The macOS companion app exposes Gemini model selection as a fixed dropdown with Gemini 2.5 Flash selected by default and Gemini 3 Flash Preview available as an alternate model.
+- The macOS companion app does not expose a user-editable transcription prompt; it fetches the hidden system prompt from Firebase Remote Config key `gemini_system_prompt` when available, falls back to the built-in dictation-only prompt when Remote Config is unavailable, and still applies the active keyboard input language per request.
+- The macOS Gemini request uses the same dictation-only behavior as the iOS and Android flows, but localizes the requested output language from the active macOS keyboard input source.
+- The macOS companion app stores Gemini usage metadata from successful transcriptions only, keeps the latest successful request, cumulative totals, and average per request in local app state, and exposes those values in a collapsed-by-default `Кошт транскрыпцыі` section.
+- The macOS `Кошт транскрыпцыі` section shows `Апошні запыт`, `Усяго`, and `Сярэдняе на запыт` groups with `IN` and `OUT` token/cost rows, plus a reset action that clears the latest request and cumulative totals.
 - iOS host app and keyboard extension share configuration and transcript handoff state through a shared app-group container.
 - The iOS host app persists the fetched Gemini model and system prompt into the shared app-group container so the keyboard extension uses the same runtime configuration.
 - The host app persists the `Як гэта працуе`, `Наладзьце Plyń`, and `Кошт транскрыпцыі` expand/collapse preferences in native local storage.
@@ -79,6 +97,10 @@ Plyń is a React Native application with native keyboard integrations for speech
 - The iOS host app shows whether the companion background session is active and can retry activation if it stops.
 - If the iOS host app saves a Gemini API key successfully but cannot restart the companion session immediately afterward, it must still confirm that the key was saved and separately report that the companion session is inactive.
 - The iOS host app accepts a `plyn://session` deep link that brings the app into the foreground and immediately tries to restore the companion session.
+- That fullscreen handoff popup must appear only for verified keyboard-origin recovery launches and must not appear for ordinary app opens, lifecycle auto-starts, or manual companion-session toggles.
+- If iOS delivers the same `plyn://session` recovery launch more than once during one reopen flow, the first successful verified keyboard handoff must keep the fullscreen popup visible instead of letting a duplicate delivery clear it.
+- Transient iOS inactive transitions that happen while foregrounding the companion from the keyboard must not dismiss that popup; it should dismiss only after an actual app background transition or an explicit close action.
+- If the native iOS app is cold-launched from that keyboard recovery URL before the React bridge is ready, the companion must still treat that launch as the same verified recovery handoff and show the popup once React finishes booting.
 - If the iOS companion session is interrupted or suspended by another app's audio session, the keyboard must stop treating the companion as audio-available until the companion app successfully restores its own audio session.
 - Returning to the companion app after that interruption must retry the companion session automatically so the keyboard can recover without requiring a separate policy engine for keyboard visibility.
 - If iOS cannot provide a valid microphone input format when the companion session starts, the host app must keep running, keep the companion session requested active, and retry audio startup later instead of crashing or discarding the saved key workflow.
@@ -88,6 +110,9 @@ Plyń is a React Native application with native keyboard integrations for speech
 ## Failure handling
 
 - If no API key is available, speech capture must not attempt transcription and the user must see a clear setup error.
+- If the macOS app is missing Microphone, Input Monitoring, or Accessibility/event-posting permission, global dictation must not start and the menu-bar window must show the missing permission state.
+- If macOS cannot observe the configured hold trigger, the app must remain ready for the fallback trigger instead of treating Fn/Globe as the only usable input path.
+- If macOS text insertion fails, the transcript must not be silently discarded; the app must report an insertion error while leaving the active text field unchanged.
 - If the Android keyboard does not have microphone permission yet, speech capture must not start, the user must see a clear Belarusian setup hint, and the companion app must open so microphone access can be granted there.
 - If Firebase Remote Config fetch fails, the app and keyboard must keep using only the last persisted Gemini runtime configuration that was previously saved from Firebase Remote Config, while still falling back to the bundled timeout values when timeout values are invalid or absent.
 - If Firebase Remote Config returns an empty or missing Gemini model value, the app must not seed or substitute any model value locally, and dictation must fail with a runtime configuration error until Firebase provides a model.
@@ -101,4 +126,6 @@ Plyń is a React Native application with native keyboard integrations for speech
 - If the iOS keyboard does not receive a timely response from the companion session after a capture command or while waiting for transcription to finish, it must show a clear companion-not-responding error.
 - In that companion-not-responding state, pressing the keyboard microphone must reopen the Companion app through the session recovery deep link so the app can immediately try to restart the session.
 - If automatic return to the keyboard is not available after reopening the iOS companion app, the app must still make the restored session state obvious so the user knows the keyboard can be used again.
+- That iOS keyboard-to-companion handoff popup must stay eligible long enough to survive a slow cold host-app startup after a real keyboard-origin `plyn://session` launch, instead of expiring before React finishes booting.
+- If that iOS recovery launch does not restore an active companion session, the app must not show the success handoff popup and must keep the user in the regular companion UI with the existing recovery error or inactive state.
 - Streamed dictation updates on both platforms must be session-bound so stale updates from an older utterance or a cancelled capture do not insert text into a newer editing context.

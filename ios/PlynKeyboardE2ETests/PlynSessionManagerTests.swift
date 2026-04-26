@@ -1,6 +1,16 @@
 import XCTest
 
 final class PlynSessionManagerTests: XCTestCase {
+  override func setUp() {
+    super.setUp()
+    PlynSharedStore.clearKeyboardRecoveryHandoff()
+  }
+
+  override func tearDown() {
+    PlynSharedStore.clearKeyboardRecoveryHandoff()
+    super.tearDown()
+  }
+
   func testReportsSharedSessionActiveWhenAudioEngineIsRunning() {
     XCTAssertTrue(
       PlynCompanionSessionAvailability.isSharedSessionActive(
@@ -71,6 +81,31 @@ final class PlynSessionManagerTests: XCTestCase {
       PlynCompanionRecoveryLaunch.shouldPersistRecoveryAttemptTimestamp(
         requestedURL: URL(string: "plyn://"),
         didLaunchSucceed: true
+      )
+    )
+  }
+
+  func testConsumesFreshKeyboardRecoveryHandoffMarker() {
+    PlynSharedStore.saveKeyboardRecoveryHandoff(date: Date(timeIntervalSince1970: 100))
+
+    XCTAssertTrue(
+      PlynSharedStore.consumeKeyboardRecoveryHandoff(
+        now: Date(timeIntervalSince1970: 140)
+      )
+    )
+    XCTAssertFalse(
+      PlynSharedStore.consumeKeyboardRecoveryHandoff(
+        now: Date(timeIntervalSince1970: 140)
+      )
+    )
+  }
+
+  func testDoesNotConsumeStaleKeyboardRecoveryHandoffMarker() {
+    PlynSharedStore.saveKeyboardRecoveryHandoff(date: Date(timeIntervalSince1970: 100))
+
+    XCTAssertFalse(
+      PlynSharedStore.consumeKeyboardRecoveryHandoff(
+        now: Date(timeIntervalSince1970: 161)
       )
     )
   }
